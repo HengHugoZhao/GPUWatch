@@ -1,0 +1,51 @@
+@@ME
+me
+@@HOST
+regieleki01
+@@GPUS
+0, NVIDIA RTX PRO 6000 Blackwell Server Edition, GPU-a0, 95709, 97887, 100, 65, 354.80, 600.00
+1, NVIDIA RTX PRO 6000 Blackwell Server Edition, GPU-a1, 93063, 97887, 96, 60, 339.62, 600.00
+2, NVIDIA RTX PRO 6000 Blackwell Server Edition, GPU-a2, 50217, 97887, 14, 40, 109.73, 600.00
+3, NVIDIA RTX PRO 6000 Blackwell Server Edition, GPU-a3, 49513, 97887, 100, 43, 143.11, 600.00
+4, NVIDIA RTX PRO 6000 Blackwell Server Edition, GPU-a4, 4, 97887, 0, 31, 35.20, 600.00
+5, NVIDIA RTX PRO 6000 Blackwell Server Edition, GPU-a5, 4, 97887, 0, 30, 34.90, 600.00
+6, NVIDIA RTX PRO 6000 Blackwell Server Edition, GPU-a6, 12000, 97887, 0, 33, [N/A], [N/A]
+7, NVIDIA RTX PRO 6000 Blackwell Server Edition, GPU-a7, 80000, 97887, 87, 58, 300.10, 600.00
+@@RC 0
+@@APPS
+GPU-a0, 1413993, 95700, /u/colleague/.conda/envs/ctrlg/bin/python3.12
+GPU-a1, 1413994, 93054, /u/colleague/.conda/envs/ctrlg/bin/python3.12
+GPU-a2, 644095, 50208, /u/me/simple/Env/bin/python3.12
+GPU-a3, 644096, 49504, /u/me/simple/Env/bin/python3.12
+GPU-a7, 700001, 40000, /u/me/simple/Env/bin/python3.12
+GPU-a7, 700002, [N/A], /usr/bin/python3
+@@PS
+ 644095 me                                643959   7523 /u/me/simple/Env/bin/python3.12 -u scripts/train.py --lr 0.001 --seed 1
+ 644096 me                                643959   7523 /u/me/simple/Env/bin/python3.12 -u scripts/train.py --lr 0.001 --seed 2
+ 700001 me                                699000    912 /u/me/simple/Env/bin/python3.12 eval.py
+1413993 colleague                        1413908 265000 /u/colleague/.conda/envs/ctrlg/bin/python3.12 -m torch.distributed.run main.py
+1413994 colleague                        1413908 265000 /u/colleague/.conda/envs/ctrlg/bin/python3.12 -m torch.distributed.run main.py
+@@CWD
+644095 /p/simple/run with space
+644096 /p/simple/run
+700001 /p/simple/eval
+@@CPUS
+256
+@@MYPS
+ 644095  643959   7523 3722376
+ 644096  643959   7523 3517548
+ 644300  644095  15000 1048576
+ 644301  644300   1500  524288
+ 644400  644096      0    1024
+ 700001  699000    456 2097152
+ 700002  700001     50 1024000
+ 643959       1      1    5000
+bad line
+@@MEM
+MemTotal:       1584953792 kB
+MemAvailable:   1527895964 kB
+@@DISK
+    1B-blocks          Used
+6597069766656 2085385928704
+@@RC 0
+@@END
