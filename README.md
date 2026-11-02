@@ -157,3 +157,7 @@ open -n --env GPUWATCH_FIXTURES="$PWD/Fixtures" ".build/GPU Watch.app" --args -s
 If the project sits in `~/Documents`, macOS may ask for permission to read it after each rebuild, and the app waits on "Connecting…" until you answer. Copying `Fixtures` somewhere else avoids that.
 
 With the Command Line Tools alone, the `@State` macro doesn't compile because its plugin ships with Xcode. View state lives in `AppModel`, or uses `State(initialValue:)` as a plain stored property.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
