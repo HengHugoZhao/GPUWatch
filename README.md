@@ -12,7 +12,7 @@ It reads over SSH, signed in as you, and never changes anything on either machin
 
 - **Free GPUs at a glance.** ZheServer's 8 GPUs as free, partly free or full, and UVA HPC's GPUs by type as ready, backfill, in use or offline, so you can tell whether a job would start now.
 - **Your jobs.** Running, pending and recently finished jobs on both machines, each with bars for what it's using: CPU, RAM, GPU and GPU memory. Pending jobs say why they're waiting.
-- **Your GPU hours** per week, month and in total on each machine.
+- **Your jobs and GPU hours** this week, month and year, and in total, on each machine.
 - **Lab allocation.** Your share of the SUs the lab has used on each grant, your charges per day, and an estimate for jobs still running.
 - **CPU memory and storage** for each machine, including your scratch space and the lab's shared storage.
 
@@ -96,7 +96,7 @@ Each job shows what it's using, with more detail when you hover. Nothing is rese
 | Partly free | Something is running, but at least 20% of the GPU's memory is unused |
 | Full | Under 20% of the GPU's memory is unused |
 
-**UVA HPC** runs `scontrol`, `squeue`, `sacct`, `sstat`, `mam-list-allocations`, `mam-list-transactions` and `hdquota`, and refreshes every 60 seconds. It lists your running and pending jobs, jobs finished in the last 30 days, how many jobs you submitted this week, month and year, GPUs by type, storage, and the lab's allocation. Click a job or a GPU type for details. Long job lists scroll in place, on both pages, so they don't push the rest of the page down. **Show all jobs** lists every running and pending job on UVA HPC at once.
+**UVA HPC** runs `scontrol`, `squeue`, `sacct`, `sstat`, `mam-list-allocations`, `mam-list-transactions` and `hdquota`, and refreshes every 60 seconds. It lists your running and pending jobs, jobs finished in the last 30 days, how many jobs you submitted this week, month and year and in total, GPUs by type, storage, and the lab's allocation. Click a job or a GPU type for details. Long job lists scroll in place, on both pages, so they don't push the rest of the page down. **Show all jobs** lists every running and pending job on UVA HPC at once.
 
 | GPU count | Meaning |
 |---|---|
@@ -118,13 +118,13 @@ Storage appears on both pages, measured differently:
 - **ZheServer:** `/p/simple` comes from `df`. It's its own volume, so this covers everyone who uses it.
 - **UVA HPC:** `/home/<ID>/scratch` and `/standard/takolab` come from `hdquota`, because `df` on `/standard` reports all of UVA's shared filesystem rather than the lab's quota. `/home/<ID>/scratch` is a link to `/scratch/<ID>`, whose total is UVA's soft limit.
 
-**Lab allocation** shows your share of what the lab has used on each grant, your own use of service units (SUs), then each grant on the `takolab` account with its dates and how much the whole lab has used. Expired grants stay collapsed until you open them.
+**Lab allocation** shows your share of what the lab has used on each grant, your own use of service units (SUs), then each grant on the `takolab` account with its dates and how much the whole lab has used. Expired grants stay collapsed until you open them, both under your share and in the grant list.
 
 - **Your charges** cover the last 60 days, because older accounting queries don't finish in a reasonable time, and Slurm's own history is capped at 31 days per query. A histogram and a heatmap show them per day, counted on the day the job ended. The heatmap has a column per week and a row per weekday. Hover over a day in either for its amount and number of jobs. This query refreshes every 15 minutes and when one of your jobs ends, rather than every minute.
 - **Your share** of a grant is what you've been charged on it over what the lab has used on it. The accounting system can't go back far enough, so your side comes from Slurm's job history: billing rate, run time and outcome, attributed to the grant open when the job ended. That matched all 84 real charges it could be checked against.
 - **Your running jobs** are an estimate, shown beside the total because they aren't part of it yet. A job costs a tenth of its Slurm `billing=` value per hour (`billing=1468` for 36,742 seconds was charged 1,498 SUs), and nothing is charged until it ends. Failed, cancelled and out-of-memory jobs end up free.
 
-**GPU hours** appear on both pages, per week, per month and in total, measured differently:
+**GPU hours** appear on both pages, per week, per month, for each month of this year and in total, measured differently:
 
 - **UVA HPC:** GPUs allocated × run time from Slurm's job history, split across the weeks and months each job ran in. This includes failed and cancelled jobs, which held their GPUs even though they're free.
 - **ZheServer:** the machine keeps no usage history, so the app records what it sees, in `~/Library/Application Support/GPU Watch/zheserver-gpu-usage-<ID>.json`, one file per computing ID. A process counts from when it really started to the last time the app saw it, and a GPU counts once however many of your processes share it. Work from before the first recording isn't there. A job that starts and ends while the app is closed or the Mac is asleep isn't counted, and a job that ends then loses the time after it was last seen.
@@ -136,7 +136,7 @@ Storage appears on both pages, measured differently:
 - **GPU:** Slurm's figure divided by the job's GPUs. It doesn't say whether this is a peak or an average, so treat it as a rough guide. **No reading** means Slurm reported 0 for both GPU numbers, which can mean the GPU went unused or wasn't read. Some older jobs and some `interactive` jobs have no GPU numbers.
 - **GPU memory:** the total across the job's GPUs, which can include memory PyTorch is holding on to after freeing it. Slurm doesn't say how much a GPU holds, so the bar's total comes from a table in the app (`HPCNode.gpuMemoryGB`), matched through the job's node. A new GPU type, or a job across several nodes, shows the amount with no bar. `swift run GPUWatchChecks --live <ID>` lists any type missing from the table.
 
-**Job history** counts each array task as a job, by the day it was submitted. Slurm caps one query at 31 days, so the app asks for one calendar month at a time: 25 queries when it opens, then 2 about every 15 minutes or when your jobs change.
+**Job history** counts each array task as a job, by the day it was submitted. Slurm caps one query at 31 days, so the app asks for one calendar month at a time: 25 queries when it opens, then 2 about every 15 minutes or when your jobs change. So the totals for jobs and UVA HPC GPU hours go back two years.
 
 Polling of UVA HPC stops while the window is completely hidden and catches up when it's visible again. ZheServer slows to every 5 minutes instead, to keep its GPU hours going.
 

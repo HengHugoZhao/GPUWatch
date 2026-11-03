@@ -128,6 +128,24 @@ public struct JobHistory: Sendable, Equatable {
         return slots(from: start, count: 12, unit: .month, calendar: calendar)
     }
 
+    public var firstSubmitted: Date? { jobs.values.map(\.submitted).min() }
+
+    /// The total so far at each month from the first job through this one, going back at least
+    /// `minimumMonths` so that a short history doesn't fill a chart with one huge column.
+    public func runningTotal(minimumMonths: Int = 1, calendar: Calendar = .current) -> [ActivitySlot] {
+        guard let thisMonth = calendar.dateInterval(of: .month, for: today)?.start else { return [] }
+        var count = minimumMonths
+        if let first = firstSubmitted, let firstMonth = calendar.dateInterval(of: .month, for: first)?.start {
+            count = max((calendar.dateComponents([.month], from: firstMonth, to: thisMonth).month ?? 0) + 1, minimumMonths)
+        }
+        guard let start = calendar.date(byAdding: .month, value: 1 - count, to: thisMonth) else { return [] }
+        var total = 0
+        return slots(from: start, count: count, unit: .month, calendar: calendar).map { month in
+            total += month.count
+            return ActivitySlot(date: month.date, count: total)
+        }
+    }
+
     private func slots(from start: Date, count: Int, unit: Calendar.Component, calendar: Calendar) -> [ActivitySlot] {
         (0..<count).compactMap { offset in
             guard let date = calendar.date(byAdding: unit, value: offset, to: start),

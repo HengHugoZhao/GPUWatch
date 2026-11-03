@@ -766,7 +766,8 @@ private struct MyUsage: View {
 }
 
 /// How much of what the lab has used on each grant was the user. Grants nobody has used are
-/// left out, since there's nothing to take a share of.
+/// left out, since there's nothing to take a share of, and ones that can't be spent any more
+/// are folded away below the current ones.
 private struct MyShare: View {
     @Environment(AppModel.self) private var model
     let snapshot: HPCSnapshot
@@ -788,12 +789,41 @@ private struct MyShare: View {
                 .font(.caption)
                 .monospacedDigit()
                 .lineLimit(1)
-                ForEach(rows, id: \.grant.id) { row in
+                let current = rows.filter(\.grant.isActive)
+                let past = rows.filter { !$0.grant.isActive }
+                ForEach(current, id: \.grant.id) { row in
                     shareRow(grant: row.grant, mine: row.mine)
+                }
+                // With no current grant there's nothing to fold the old ones under.
+                if !past.isEmpty && !current.isEmpty {
+                    pastHeader(past.map(\.grant))
+                }
+                if current.isEmpty || model.showsInactiveShares {
+                    ForEach(past, id: \.grant.id) { row in
+                        shareRow(grant: row.grant, mine: row.mine)
+                    }
                 }
             }
             .padding(14)
         }
+    }
+
+    private func pastHeader(_ grants: [AllocationGrant]) -> some View {
+        Button {
+            model.showsInactiveShares.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                Chevron(isOpen: model.showsInactiveShares)
+                Text(grants.allSatisfy { $0.phase(now: .now) == .expired } ? "Expired grants" : "Inactive grants")
+                Text("\(grants.count)")
+                    .monospacedDigit()
+                Spacer()
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 2)
+        }
+        .buttonStyle(HoverRowStyle())
     }
 
     private var rows: [(grant: AllocationGrant, mine: Int)] {

@@ -367,6 +367,11 @@ func checkJobHistory() throws {
     check(month.count == 31 && month.map(\.count).reduce(0, +) == 3, "this month by day: \(month.map(\.count))")
     let year = history.year(calendar: sundayFirst)
     check(year.map(\.count) == [1, 0, 1, 0, 0, 0, 0, 0, 4, 3, 0, 0], "counted when submitted, not when ended: \(year.map(\.count))")
+    let totals = history.runningTotal(minimumMonths: 12, calendar: sundayFirst)
+    check(totals.count >= 12 && totals.last?.count == history.jobs.count, "the running total ends at every job: \(totals.map(\.count))")
+    check(zip(totals, totals.dropFirst()).allSatisfy { $0.count <= $1.count }, "a running total never falls")
+    check(totals.first.map { sundayFirst.isDate($0.date, equalTo: history.firstSubmitted ?? .distantPast, toGranularity: .month) } == true
+          || totals.count == 12, "the total starts at the first job's month, unless padded to a year")
 
     let grants = try HPCSnapshot.parse(fixture("UVA_HPC")).allocation?.grants ?? []
     let shares = history.charges(on: grants)
@@ -402,6 +407,13 @@ func checkGPUHours() throws {
     check(months.count == 12 && months[0] == 20 && months[10] == 14 && months[11] == 6, "a job across two months is split between them: \(months)")
     let weeks = usage.weeks(count: 12, through: history.today, calendar: sundayFirst).map(\.hours)
     check(weeks.count == 12 && weeks[11] == 5 && weeks[10] == 0 && weeks[7] == 3, "hours per week, newest last: \(weeks)")
+    let year = usage.year(holding: history.today, calendar: sundayFirst)
+    let thisYear = sundayFirst.component(.year, from: history.today)
+    let monthsThisYear = usage.months(count: 12, through: history.today, calendar: sundayFirst).filter { sundayFirst.component(.year, from: $0.date) == thisYear }
+    check(year.count == 12 && year.allSatisfy { sundayFirst.component(.year, from: $0.date) == thisYear } && sundayFirst.component(.month, from: year[0].date) == 1,
+          "this year is January to December: \(year.map(\.date))")
+    check(abs(year.map(\.hours).reduce(0, +) - monthsThisYear.map(\.hours).reduce(0, +)) < 0.001 && year.map(\.hours).reduce(0, +) < usage.totalHours,
+          "this year counts only its own months: \(year.map(\.hours))")
     let totals = usage.runningTotal(through: history.today, calendar: sundayFirst)
     check(totals.count == 12 && totals.first?.hours == 20 && abs((totals.last?.hours ?? 0) - 43) < 0.001, "the running total ends at the total: \(totals.map(\.hours))")
     check(GPUUsage(intervals: []).runningTotal(through: history.today).count == 1, "nothing used yet is still one month")

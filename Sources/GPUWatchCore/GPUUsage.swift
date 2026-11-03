@@ -50,6 +50,14 @@ public struct GPUUsage: Sendable, Equatable {
         slots(of: .month, count: count, through: today, calendar: calendar)
     }
 
+    /// Each month of the year holding `today`, January first, months still to come at zero.
+    public func year(holding today: Date, calendar: Calendar = .current) -> [UsageSlot] {
+        guard let start = calendar.dateInterval(of: .year, for: today)?.start,
+              let december = calendar.date(byAdding: .month, value: 11, to: start)
+        else { return [] }
+        return months(count: 12, through: december, calendar: calendar)
+    }
+
     /// The total so far at each month from the first use through `today`, going back at least
     /// `minimumMonths` so that a short history doesn't fill a chart with one huge column.
     public func runningTotal(through today: Date, minimumMonths: Int = 1, calendar: Calendar = .current) -> [UsageSlot] {

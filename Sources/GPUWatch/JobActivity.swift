@@ -1,24 +1,54 @@
 import GPUWatchCore
 import SwiftUI
 
-/// How many jobs the user submitted this week, month and year, each over its own time scale.
+/// How many jobs the user submitted this week, month and year, each over its own time scale,
+/// and in total.
 struct JobActivity: View {
     let history: JobHistory
+
+    private static let monthsShown = 12
 
     var body: some View {
         Panel {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Jobs I submitted")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text("Jobs I submitted")
+                    Spacer(minLength: 0)
+                    if let first = history.firstSubmitted {
+                        Text("Since \(first.formatted(.dateTime.month(.abbreviated).year())).")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
                 HStack(alignment: .top, spacing: 24) {
                     tile("this week", slots: history.week(), scale: .week)
                     tile("this month", slots: history.month(), scale: .month)
                     tile("this year", slots: history.year(), scale: .year)
+                    totalTile()
                 }
             }
             .padding(14)
         }
+    }
+
+    /// Thinned out once the months stop fitting, counting back so the latest keeps its label.
+    private func totalTile() -> some View {
+        let totals = history.runningTotal(minimumMonths: Self.monthsShown)
+        let total = history.jobs.count
+        let every = totals.count <= Self.monthsShown + 2 ? 1 : 3
+        return SlotTile(
+            number: "\(total)",
+            caption: "\(total == 1 ? "job" : "jobs") in total",
+            columns: totals.enumerated().map { index, month in
+                let isLabeled = (totals.count - 1 - index) % every == 0
+                return SlotColumn(
+                    value: Double(month.count),
+                    label: isLabeled ? month.date.formatted(.dateTime.month(every == 1 ? .narrow : .abbreviated)) : nil,
+                    tooltip: "Total by \(month.date.formatted(.dateTime.month(.wide).year())): \(month.count == 1 ? "1 job" : "\(month.count) jobs")"
+                )
+            }
+        )
     }
 
     private func tile(_ period: String, slots: [ActivitySlot], scale: ActivityScale) -> some View {
@@ -62,7 +92,7 @@ private enum ActivityScale {
     }
 }
 
-/// The user's GPU hours on one machine: per week, per month, and in total.
+/// The user's GPU hours on one machine: per week, per month, this year, and in total.
 struct GPUHoursPanel: View {
     let usage: GPUUsage
     let today: Date
@@ -77,6 +107,7 @@ struct GPUHoursPanel: View {
     var body: some View {
         let weeks = usage.weeks(count: Self.weeksShown, through: today)
         let months = usage.months(count: Self.monthsShown, through: today)
+        let year = usage.year(holding: today)
         Panel {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -90,6 +121,7 @@ struct GPUHoursPanel: View {
                 HStack(alignment: .top, spacing: 24) {
                     SlotTile(number: Format.hours(weeks.last?.hours ?? 0), caption: "this week", columns: weekColumns(weeks))
                     SlotTile(number: Format.hours(months.last?.hours ?? 0), caption: "this month", columns: monthColumns(months))
+                    SlotTile(number: Format.hours(year.map(\.hours).reduce(0, +)), caption: "this year", columns: monthColumns(year))
                     SlotTile(number: Format.hours(usage.totalHours), caption: "total", columns: totalColumns())
                 }
             }

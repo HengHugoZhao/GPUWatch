@@ -58,6 +58,7 @@ final class AppModel {
     var showsFinishedJobs = false
     var showsAllActiveJobs = false
     var showsInactiveGrants = false
+    var showsInactiveShares = false
 
     private var started = false
     private var chargesRequestedAt: Date?
@@ -126,6 +127,7 @@ final class AppModel {
         showsFinishedJobs = false
         showsAllActiveJobs = false
         showsInactiveGrants = false
+        showsInactiveShares = false
         Task {
             await SSH.dropConnection(on: RemoteScripts.serverMachine, as: previous)
             await SSH.dropConnection(on: RemoteScripts.hpcMachine, as: previous)
