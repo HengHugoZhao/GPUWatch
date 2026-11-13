@@ -118,7 +118,7 @@ struct FeedPage<Value, Content: View>: View {
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .softTopEdge()
+            .fadesUnderTitleBar()
             // Under the title bar too, or the page and the bar above it meet in a hard step.
             .background {
                 ZStack {
@@ -175,13 +175,22 @@ private struct StaleBanner: View {
 }
 
 private extension View {
-    /// The title bar draws no background, so content scrolling under it fades out rather than
-    /// running into the title.
-    @ViewBuilder func softTopEdge() -> some View {
-        if #available(macOS 26.0, *) {
-            scrollEdgeEffectStyle(.soft, for: .top)
-        } else {
-            self
+    /// The title bar draws no background, so content scrolled under it is hidden there and fades
+    /// in just below, rather than running into the title. At rest nothing sits under the bar, so
+    /// this only shows once the page scrolls.
+    func fadesUnderTitleBar() -> some View {
+        mask {
+            GeometryReader { geometry in
+                let bar = geometry.safeAreaInsets.top
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: bar)
+                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 14)
+                    Color.black
+                }
+                .frame(height: geometry.size.height + bar)
+                .offset(y: -bar)
+            }
         }
     }
 }
