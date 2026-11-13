@@ -35,10 +35,6 @@ public enum RemoteScripts {
     /// How far back the finished-jobs list goes. sacct refuses much wider ranges.
     public static let finishedWindowDays = 30
 
-    /// How far back the user's charges go. MAM takes about 6 seconds for this, but 5 months
-    /// didn't finish in a minute, and nor did a single month from further back.
-    public static let chargeWindowDays = 60
-
     static let squeueFields = [
         "JobID", "Partition", "State", "TimeUsed", "TimeLimit", "NumNodes", "NumCPUs", "MinMemory",
         "tres-per-node", "tres-per-job", "tres-alloc", "ReasonList", "SubmitTime", "StartTime", "EndTime",
@@ -71,6 +67,7 @@ public enum RemoteScripts {
     echo '@@CWD'
     for p in $(echo "$pids" | tr ',' ' '); do d=$(readlink "/proc/$p/cwd" 2>/dev/null) && echo "$p $d"; done
     echo '@@CPUS'; nproc
+    echo '@@LOAD'; cat /proc/loadavg
     echo '@@MYPS'
     ps -u "$(id -un)" -o pid=,ppid=,cputimes=,rss= 2>/dev/null
     echo '@@MEM'
@@ -144,16 +141,38 @@ public enum RemoteScripts {
         """
     }
 
-    /// Not part of `hpc`: it's the slowest query here, and a charge only appears when a job ends.
-    public static let myCharges = """
-    from=$(date -d '\(chargeWindowDays) days ago' +%F)
-    echo '@@WINDOW'
-    echo "$from $(date +%F)"
-    echo '@@CHARGES'
-    timeout -k 2 30 /opt/mam/current/bin/mam-list-transactions -a \(labAccount) -u "$(id -un)" -A Charge -s "$from" --format csv --show Id,CreationTime,Amount 2>&1
-    echo "@@RC $?"
-    echo '@@END'
-    """
+    /// Everyone on the lab's account, their names, and every running or queued job charged to it.
+    public static let labMembers: String = {
+        let squeueFormat = (["UserName"] + squeueFields).map { "\($0):|" }.joined(separator: ",")
+        return """
+        echo '@@TZ'; date +%z; readlink -f /etc/localtime
+        echo '@@MEMBERS'
+        users=$(timeout -k 2 15 sacctmgr -nP show assoc account=\(labAccount) format=User 2>&1); rc=$?
+        printf '%s\\n' "$users" | sort -u
+        echo "@@RC $rc"
+        echo '@@NAMES'
+        if [ $rc -eq 0 ]; then for u in $(printf '%s\\n' "$users" | sort -u); do getent passwd "$u" | cut -d: -f1,5; done; fi
+        echo '@@LABJOBS'
+        timeout -k 2 15 squeue -a -A \(labAccount) -h -O "\(squeueFormat)" 2>&1
+        echo "@@RC $?"
+        echo '@@END'
+        """
+    }()
+
+    /// Anyone's running and pending jobs, looked up by computing ID. `getent` first, because
+    /// `squeue` answers an unknown user with an error but still exits 0.
+    public static func userLookup(_ id: String) -> String {
+        let squeueFormat = squeueFields.map { "\($0):|" }.joined(separator: ",")
+        return """
+        echo '@@TZ'; date +%z; readlink -f /etc/localtime
+        echo '@@WHO'
+        getent passwd \(id) | cut -d: -f1,5
+        echo '@@JOBS'
+        if getent passwd \(id) >/dev/null; then timeout -k 2 15 squeue -a -u \(id) -h -O "\(squeueFormat)" 2>&1; else true; fi
+        echo "@@RC $?"
+        echo '@@END'
+        """
+    }
 }
 
 /// Fetching and parsing together, off the main actor.
@@ -172,7 +191,12 @@ public enum Fetch {
         try JobHistory.parse(try await SSH.run(on: RemoteScripts.hpcMachine, as: user, script: RemoteScripts.jobHistory(monthsBack: monthsBack), timeout: 45))
     }
 
-    public static func myCharges(as user: String) async throws -> MyCharges {
-        try MyCharges.parse(try await SSH.run(on: RemoteScripts.hpcMachine, as: user, script: RemoteScripts.myCharges, timeout: 45))
+    public static func labMembers(as user: String) async throws -> LabMembers {
+        try LabMembers.parse(try await SSH.run(on: RemoteScripts.hpcMachine, as: user, script: RemoteScripts.labMembers, timeout: 40), account: RemoteScripts.labAccount)
+    }
+
+    /// `id` must have been through `ComputingID.normalized`, since it goes into the script.
+    public static func userLookup(_ id: String, as user: String) async throws -> UserLookup {
+        try UserLookup.parse(try await SSH.run(on: RemoteScripts.hpcMachine, as: user, script: RemoteScripts.userLookup(id), timeout: 30), id: id)
     }
 }

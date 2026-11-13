@@ -4,16 +4,28 @@ import SwiftUI
 struct ServerPage: View {
     let snapshot: ServerSnapshot
 
+    private static let cardMinimumWidth: CGFloat = 190
+
     var body: some View {
         VStack(alignment: .leading, spacing: 32) {
             ServerJobsSection(jobs: snapshot.myJobs, snapshot: snapshot)
-            VStack(alignment: .leading, spacing: 18) {
-                HeadlineRow(hero: { hero }, side: cpuMemory)
-                Panel {
-                    ServerHeaderRow()
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("GPUs").display(20)
+                    Text("\(snapshot.hostname) · \(snapshot.hardwareSummary)")
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                ServerStats(snapshot: snapshot)
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: Self.cardMinimumWidth), spacing: 12, alignment: .top)],
+                    alignment: .leading,
+                    spacing: 12
+                ) {
                     ForEach(snapshot.gpus) { gpu in
-                        Divider()
-                        ServerGPURow(gpu: gpu, me: snapshot.me)
+                        GPUCard(gpu: gpu, me: snapshot.me)
                     }
                 }
                 Text(footnote)
@@ -28,39 +40,68 @@ struct ServerPage: View {
         }
     }
 
-    private var hero: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\(snapshot.count(.free))")
-                    .font(.system(size: 40, weight: .semibold))
-                Text("of \(snapshot.gpus.count) GPUs free")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-            }
-            Text("\(snapshot.count(.partlyFree)) partly free · \(snapshot.count(.full)) full · \(snapshot.hostname) · \(snapshot.hardwareSummary)")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-        }
-    }
-
-    private var cpuMemory: UsageMeter? {
-        snapshot.memory.map { memory in
-            UsageMeter(
-                title: "CPU memory",
-                usedMB: memory.usedMB,
-                totalMB: memory.totalMB,
-                usedWord: "in use",
-                remainderWord: "available",
-                explanation: "In use is the total minus what Linux reports as available, so disk cache it can reclaim doesn't count."
-            )
-        }
-    }
-
     private var footnote: String {
         let percent = Int(GPUAvailability.partlyFreeThreshold * 100)
         return "Free: nothing running. Partly free: something is running, but at least \(percent)% of its memory is unused. "
             + "Full: under \(percent)% of its memory is unused. Refreshes every 30 seconds."
+    }
+}
+
+/// The whole machine in five numbers: what's free, how hard the GPUs and CPUs work, and memory on each.
+private struct ServerStats: View {
+    let snapshot: ServerSnapshot
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            StatTile(
+                title: "GPUs free",
+                value: "\(snapshot.count(.free)) of \(snapshot.gpus.count)",
+                caption: "\(snapshot.count(.partlyFree)) partly free · \(snapshot.count(.full)) full"
+            ) {
+                HStack(spacing: 3) {
+                    ForEach(snapshot.gpus) { gpu in
+                        let status = gpu.availability.status
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(status.color)
+                            .frame(height: 6)
+                            .help("GPU \(gpu.index): \(status.text)")
+                    }
+                }
+            }
+            StatTile(
+                title: "GPU utilization",
+                value: snapshot.meanGPUUtilization.map(wholePercent) ?? "–",
+                caption: "Average across the GPUs"
+            ) {
+                Meter(fraction: snapshot.meanGPUUtilization ?? 0)
+            }
+            StatTile(
+                title: "GPU memory",
+                value: Format.memory(mb: snapshot.gpuMemoryUsedMiB),
+                caption: "in use of \(Format.memory(mb: snapshot.gpuMemoryTotalMiB))"
+            ) {
+                Meter(fraction: snapshot.gpuMemoryTotalMiB > 0 ? Double(snapshot.gpuMemoryUsedMiB) / Double(snapshot.gpuMemoryTotalMiB) : 0)
+            }
+            StatTile(title: "CPU", value: snapshot.cpuBusyFraction.map(wholePercent) ?? "–", caption: cpuCaption) {
+                Meter(fraction: snapshot.cpuBusyFraction ?? 0)
+            }
+            .help("The one-minute load average over the number of cores: roughly how many cores have work to do.")
+            StatTile(
+                title: "CPU memory",
+                value: snapshot.memory.map { Format.memory(mb: $0.usedMB) } ?? "–",
+                caption: snapshot.memory.map { "in use of \(Format.memory(mb: $0.totalMB))" } ?? "Not reported"
+            ) {
+                Meter(fraction: snapshot.memory.map { Double($0.usedMB) / Double(max($0.totalMB, 1)) } ?? 0)
+            }
+            .help("In use is the total minus what Linux reports as available, so disk cache it can reclaim doesn't count.")
+        }
+    }
+
+    private func wholePercent(_ fraction: Double) -> String { "\(Int((fraction * 100).rounded()))%" }
+
+    private var cpuCaption: String {
+        guard let load = snapshot.loadAverage, let cores = snapshot.cpuCount else { return "Not reported" }
+        return "\(Int(load.rounded())) of \(cores) cores busy"
     }
 }
 
@@ -75,11 +116,11 @@ private struct ServerJobsSection: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "My jobs", detail: jobs.isEmpty ? "Nothing running on a GPU" : "\(jobs.count) running")
             if !jobs.isEmpty {
-                Panel {
-                    CappedScroll {
+                CappedScroll(maxHeight: 400) {
+                    VStack(spacing: 8) {
                         ForEach(jobs) { job in
-                            if job.id != jobs.first?.id { Divider() }
                             ServerJobRow(job: job, snapshot: snapshot, isExpanded: binding(for: job.id))
+                                .surface()
                         }
                     }
                 }
@@ -109,8 +150,8 @@ private struct ServerJobRow: View {
     let snapshot: ServerSnapshot
     @Binding var isExpanded: Bool
 
-    /// Lines the bars up under the job's status, past the chevron.
-    private static let usageInset: CGFloat = 22
+    /// Past the chevron and the dot, so the rings start under the name.
+    private static let usageInset: CGFloat = 46
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -121,11 +162,11 @@ private struct ServerJobRow: View {
                     HStack(alignment: .top, spacing: 10) {
                         Chevron(isOpen: isExpanded)
                             .padding(.top, 3)
-                        JobPhase.running.status
-                            .frame(width: 112, alignment: .leading)
+                        StatusDot(status: JobPhase.running.status)
+                            .padding(.top, 1)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(job.shortCommand)
-                                .fontWeight(.medium)
+                                .fontWeight(.semibold)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             Text(resourceLine)
@@ -144,9 +185,10 @@ private struct ServerJobRow: View {
                     }
                     ServerJobUsage(job: job, snapshot: snapshot)
                         .padding(.leading, Self.usageInset)
+                        .padding(.top, 4)
                 }
                 .padding(.horizontal, 14)
-                .padding(.vertical, 9)
+                .padding(.vertical, 12)
             }
             .buttonStyle(HoverRowStyle())
             if isExpanded {
@@ -180,14 +222,29 @@ private struct ServerJobUsage: View {
     let job: ServerJob
     let snapshot: ServerSnapshot
 
-    private static let spacing: CGFloat = 16
+    private static let spacing: CGFloat = 20
 
     var body: some View {
         HStack(alignment: .top, spacing: Self.spacing) {
             cpu
             ram
+            gpuBusy
             gpuMemory
         }
+    }
+
+    private var gpuBusy: UsageCell {
+        let readings = snapshot.gpus.filter { job.gpuIndexes.contains($0.index) }.compactMap(\.utilizationPercent)
+        guard !readings.isEmpty else {
+            return UsageCell(label: "GPU", value: "–", fraction: nil, explanation: "nvidia-smi didn't report utilization for this job's GPUs.")
+        }
+        let mean = Double(readings.reduce(0, +)) / Double(readings.count) / 100
+        return UsageCell(
+            label: "GPU",
+            value: "\(Int((mean * 100).rounded()))%",
+            fraction: mean,
+            explanation: "How busy the job's GPUs are right now, averaged over them. Anyone else on the same GPUs counts too."
+        )
     }
 
     private var cpu: UsageCell {
@@ -232,124 +289,138 @@ private struct ServerJobUsage: View {
 
 // MARK: - GPUs
 
-private enum Column {
-    static let index: CGFloat = 38
-    static let status: CGFloat = 104
-    static let utilization: CGFloat = 120
-    static let temperature: CGFloat = 46
-    static let power: CGFloat = 92
-    static let spacing: CGFloat = 16
-    static let horizontalPadding: CGFloat = 14
-}
-
-private struct ServerHeaderRow: View {
-    var body: some View {
-        HStack(spacing: Column.spacing) {
-            Text("GPU").frame(width: Column.index, alignment: .leading)
-            Text("Status").frame(width: Column.status, alignment: .leading)
-            Text("Memory").frame(maxWidth: .infinity, alignment: .leading)
-            Text("Utilization").frame(width: Column.utilization, alignment: .leading)
-            Text("Temp").frame(width: Column.temperature, alignment: .trailing)
-            Text("Power").frame(width: Column.power, alignment: .trailing)
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, Column.horizontalPadding)
-        .padding(.vertical, 8)
-    }
-}
-
-private struct ServerGPURow: View {
+/// One GPU: how busy it is, how full its memory is, and who is on it.
+private struct GPUCard: View {
     let gpu: ServerGPU
     let me: String
 
+    private static let ringSize: CGFloat = 58
+    private static let processesShown = 2
+    /// The rule, two process lines and the "and N more" line.
+    private static let processesHeight: CGFloat = 62
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: Column.spacing) {
-                Text("\(gpu.index)")
-                    .fontWeight(.medium)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("GPU \(gpu.index)")
+                    .font(.headline)
                     .monospacedDigit()
-                    .frame(width: Column.index, alignment: .leading)
+                Spacer(minLength: 6)
                 gpu.availability.status
-                    .frame(width: Column.status, alignment: .leading)
-                memory
-                utilization
-                Text(gpu.temperatureC.map { "\($0)°C" } ?? "–")
-                    .monospacedDigit()
-                    .frame(width: Column.temperature, alignment: .trailing)
-                Text(power)
-                    .monospacedDigit()
-                    .frame(width: Column.power, alignment: .trailing)
+                    .font(.caption)
             }
-            ForEach(gpu.processes) { process in
-                ProcessLine(process: process, isMine: process.user == me)
-                    .padding(.leading, Column.index + Column.spacing)
+            HStack(alignment: .center, spacing: 14) {
+                ZStack {
+                    Ring(fraction: utilization, lineWidth: 6)
+                    VStack(spacing: -1) {
+                        Text(gpu.utilizationPercent.map { "\($0)%" } ?? "–")
+                            .font(.system(size: 13, weight: .semibold))
+                            .monospacedDigit()
+                        Text("busy")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(width: Self.ringSize, height: Self.ringSize)
+                .help("Utilization: how much of the last sample the GPU spent running work.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Memory")
+                        .eyebrow()
+                        .foregroundStyle(.secondary)
+                    Text("\(Format.gib(mib: gpu.memoryUsedMiB)) / \(Format.gib(mib: gpu.memoryTotalMiB)) GiB")
+                        .font(.callout)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Meter(fraction: gpu.memoryFraction)
+                }
             }
-        }
-        .padding(.horizontal, Column.horizontalPadding)
-        .padding(.vertical, 10)
-    }
-
-    private var memory: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Text("\(Format.gib(mib: gpu.memoryUsedMiB)) / \(Format.gib(mib: gpu.memoryTotalMiB)) GiB")
+            HStack(spacing: 12) {
+                Label(gpu.temperatureC.map { "\($0)°C" } ?? "–", systemImage: "thermometer.medium")
                 Spacer(minLength: 4)
-                Text("\(Format.gib(mib: gpu.memoryFreeMiB)) free")
-                    .foregroundStyle(.secondary)
+                Label(power, systemImage: "bolt")
             }
-            .font(.callout)
+            .font(.caption)
+            .foregroundStyle(.secondary)
             .monospacedDigit()
-            .lineLimit(1)
-            Meter(fraction: gpu.memoryFraction)
+            .labelStyle(CompactLabel())
+            processes
         }
-        .frame(maxWidth: .infinity)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .surface()
     }
 
-    private var utilization: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(gpu.utilizationPercent.map { "\($0)%" } ?? "–")
-                .font(.callout)
-                .monospacedDigit()
-            Meter(fraction: Double(gpu.utilizationPercent ?? 0) / 100)
-        }
-        .frame(width: Column.utilization)
-    }
+    private var utilization: Double? { gpu.utilizationPercent.map { Double($0) / 100 } }
 
     private var power: String {
         guard let draw = gpu.powerDrawW else { return "–" }
         guard let limit = gpu.powerLimitW else { return "\(Int(draw)) W" }
         return "\(Int(draw)) / \(Int(limit)) W"
     }
+
+    /// Room for every line it can show, so cards in a row come out the same height.
+    @ViewBuilder private var processes: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Rectangle().fill(Theme.hairline).frame(height: 1)
+            if gpu.processes.isEmpty {
+                Text("Nothing running")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 2)
+            }
+            ForEach(gpu.processes.prefix(Self.processesShown)) { process in
+                ProcessLine(process: process, isMine: process.user == me)
+            }
+            if gpu.processes.count > Self.processesShown {
+                Text("and \(gpu.processes.count - Self.processesShown) more")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help(gpu.processes.dropFirst(Self.processesShown).map { "\($0.user ?? "Unknown user"): \($0.shortCommand)" }.joined(separator: "\n"))
+            }
+        }
+        .frame(minHeight: Self.processesHeight, alignment: .top)
+    }
 }
 
+private struct CompactLabel: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 3) {
+            configuration.icon.imageScale(.small)
+            configuration.title
+        }
+    }
+}
+
+/// Who holds memory on a GPU and with what, short enough to fit a card.
 private struct ProcessLine: View {
     let process: GPUProcess
     let isMine: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "person.fill")
-                .foregroundStyle(.tertiary)
-                .imageScale(.small)
-            Text(isMine ? "You" : (process.user ?? "Unknown user"))
-                .fontWeight(isMine ? .semibold : .regular)
-                .foregroundStyle(.primary)
+        HStack(spacing: 6) {
+            Group {
+                if isMine {
+                    Tag(text: "You")
+                } else {
+                    Text(process.user ?? "Unknown user")
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+            }
+            .layoutPriority(1)
+            // The script's name is the part worth keeping, so drop the interpreter when it won't fit.
             Text(process.shortCommand)
                 .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 8)
+                .truncationMode(.head)
+            Spacer(minLength: 4)
             if let memory = process.memoryMiB {
                 Text("\(Format.gib(mib: memory)) GiB")
-            }
-            if let elapsed = process.elapsedSeconds {
-                Text(Format.duration(elapsed))
-                    .frame(minWidth: 48, alignment: .trailing)
             }
         }
         .font(.caption)
         .foregroundStyle(.secondary)
         .monospacedDigit()
-        .help(process.commandLine ?? process.executable)
+        .help([process.commandLine ?? process.executable, process.elapsedSeconds.map { "Running \(Format.duration($0))" }].compactMap { $0 }.joined(separator: "\n"))
     }
 }

@@ -14,6 +14,7 @@ struct ContentView: View {
                 pages
             }
         }
+        .tint(Theme.accent)
         .background(WindowLevel(isOnTop: isPinned))
     }
 
@@ -33,6 +34,8 @@ struct ContentView: View {
         } detail: {
             detail
                 .navigationTitle(model.page.title)
+                // The page's own canvas runs up under the bar, so the two read as one surface.
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
                 .toolbar {
                     ToolbarItem {
                         UpdatedLabel(date: model.updatedAt(model.page))
@@ -115,6 +118,15 @@ struct FeedPage<Value, Content: View>: View {
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .softTopEdge()
+            // Under the title bar too, or the page and the bar above it meet in a hard step.
+            .background {
+                ZStack {
+                    Glass()
+                    Theme.canvasTint
+                }
+                .ignoresSafeArea()
+            }
         } else if let failure = feed.failure {
             ContentUnavailableView {
                 Label(failure.headline, systemImage: "network.slash")
@@ -158,6 +170,18 @@ private struct StaleBanner: View {
             Button("Try Again", action: retry)
         }
         .padding(12)
-        .background(Theme.serious.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        .surface(Theme.serious.opacity(0.10), border: Theme.serious.opacity(0.35))
+    }
+}
+
+private extension View {
+    /// The title bar draws no background, so content scrolling under it fades out rather than
+    /// running into the title.
+    @ViewBuilder func softTopEdge() -> some View {
+        if #available(macOS 26.0, *) {
+            scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            self
+        }
     }
 }

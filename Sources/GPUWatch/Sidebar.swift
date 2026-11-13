@@ -46,8 +46,6 @@ private struct MachineCard<Content: View>: View {
     let shortcut: KeyEquivalent
     @ViewBuilder let content: Content
 
-    private static var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 10) }
-
     private var isSelected: Bool { model.page == page }
 
     var body: some View {
@@ -57,7 +55,7 @@ private struct MachineCard<Content: View>: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: page.symbol)
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Theme.accent)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(page.title)
                             .fontWeight(.medium)
@@ -81,13 +79,11 @@ private struct MachineCard<Content: View>: View {
         }
         .buttonStyle(HoverRowStyle())
         .keyboardShortcut(shortcut)
-        .background(isSelected ? Color.accentColor.opacity(0.2) : Color.primary.opacity(0.05), in: Self.shape)
-        .clipShape(Self.shape)
-        .overlay {
-            if isSelected {
-                Self.shape.strokeBorder(Color.accentColor, lineWidth: 1)
-            }
-        }
+        // Selected lifts onto a panel's surface, as Linear marks selection, with the accent on its edge.
+        .surface(
+            isSelected ? Theme.surfaceRaised : Color.primary.opacity(0.04),
+            border: isSelected ? Theme.accent.opacity(0.7) : Color.primary.opacity(0.06)
+        )
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
@@ -196,6 +192,7 @@ private struct SignedInRow: View {
             Spacer(minLength: 4)
             Button("Switch User") { model.signOut() }
                 .buttonStyle(.link)
+                .foregroundStyle(Theme.accent)
                 .help("Sign out and choose another computing ID")
         }
         .font(.caption)
@@ -212,7 +209,7 @@ private struct WeeklyGPUHours: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("My GPU hours this week")
-                .font(.caption)
+                .eyebrow()
                 .foregroundStyle(.secondary)
             row(AppModel.Page.server.title, usage: model.serverUsage.usage, today: .now)
             if let history = model.jobHistory.value {
@@ -221,7 +218,7 @@ private struct WeeklyGPUHours: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+        .surface(Color.primary.opacity(0.04), border: Color.primary.opacity(0.06))
     }
 
     private func row(_ name: String, usage: GPUUsage, today: Date) -> some View {
@@ -245,7 +242,7 @@ private struct WeekBars: View {
         HStack(alignment: .bottom, spacing: 2) {
             ForEach(weeks) { week in
                 RoundedRectangle(cornerRadius: 1)
-                    .fill(week.hours > 0 ? Theme.meter : Theme.barTrack)
+                    .fill(week.hours > 0 ? AnyShapeStyle(Theme.meter) : AnyShapeStyle(Theme.barTrack))
                     .frame(height: max(Self.height * week.hours / peak, Self.emptyHeight))
                     .frame(maxWidth: .infinity)
                     .help("Week of \(week.date.formatted(.dateTime.month(.abbreviated).day())): \(Format.hours(week.hours)) GPU hours")

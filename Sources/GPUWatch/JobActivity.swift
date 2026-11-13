@@ -9,60 +9,54 @@ struct JobActivity: View {
     private static let monthsShown = 12
 
     var body: some View {
-        Panel {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("Jobs I submitted")
-                    Spacer(minLength: 0)
-                    if let first = history.firstSubmitted {
-                        Text("Since \(first.formatted(.dateTime.month(.abbreviated).year())).")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                HStack(alignment: .top, spacing: 24) {
-                    tile("this week", slots: history.week(), scale: .week)
-                    tile("this month", slots: history.month(), scale: .month)
-                    tile("this year", slots: history.year(), scale: .year)
-                    totalTile()
-                }
-            }
-            .padding(14)
-        }
+        HistoryPanel(
+            title: "Jobs I submitted",
+            note: history.firstSubmitted.map { "Since \($0.formatted(.dateTime.month(.abbreviated).year()))." },
+            storageKey: "jobsHistoryTab",
+            tabs: [
+                tab("This week", slots: history.week(), scale: .week),
+                tab("This month", slots: history.month(), scale: .month),
+                tab("This year", slots: history.year(), scale: .year),
+                totalTab(),
+            ]
+        )
     }
 
     /// Thinned out once the months stop fitting, counting back so the latest keeps its label.
-    private func totalTile() -> some View {
+    private func totalTab() -> HistoryTab {
         let totals = history.runningTotal(minimumMonths: Self.monthsShown)
         let total = history.jobs.count
         let every = totals.count <= Self.monthsShown + 2 ? 1 : 3
-        return SlotTile(
+        return HistoryTab(
+            caption: "In total",
             number: "\(total)",
-            caption: "\(total == 1 ? "job" : "jobs") in total",
+            unit: total == 1 ? "job" : "jobs",
             columns: totals.enumerated().map { index, month in
                 let isLabeled = (totals.count - 1 - index) % every == 0
                 return SlotColumn(
                     value: Double(month.count),
-                    label: isLabeled ? month.date.formatted(.dateTime.month(every == 1 ? .narrow : .abbreviated)) : nil,
+                    label: isLabeled ? month.date.formatted(.dateTime.month(.abbreviated)) : nil,
                     tooltip: "Total by \(month.date.formatted(.dateTime.month(.wide).year())): \(month.count == 1 ? "1 job" : "\(month.count) jobs")"
                 )
-            }
+            },
+            current: totals.indices.last
         )
     }
 
-    private func tile(_ period: String, slots: [ActivitySlot], scale: ActivityScale) -> some View {
+    private func tab(_ caption: String, slots: [ActivitySlot], scale: ActivityScale) -> HistoryTab {
         let total = slots.map(\.count).reduce(0, +)
-        return SlotTile(
+        return HistoryTab(
+            caption: caption,
             number: "\(total)",
-            caption: "\(total == 1 ? "job" : "jobs") \(period)",
+            unit: total == 1 ? "job" : "jobs",
             columns: slots.map { slot in
                 SlotColumn(
                     value: Double(slot.count),
                     label: scale.isLabeled(slot.date) ? slot.date.formatted(scale.labelFormat) : nil,
                     tooltip: "\(slot.date.formatted(scale.nameFormat)): \(slot.count == 1 ? "1 job" : "\(slot.count) jobs")"
                 )
-            }
+            },
+            current: slots.lastIndex { $0.date <= history.today }
         )
     }
 }
@@ -101,42 +95,39 @@ struct GPUHoursPanel: View {
 
     private static let weeksShown = 12
     private static let monthsShown = 12
-    private static let weekLabelEvery = 4
+    private static let weekLabelEvery = 2
     private static let monthFormat = Date.FormatStyle().month(.wide).year()
 
     var body: some View {
         let weeks = usage.weeks(count: Self.weeksShown, through: today)
         let months = usage.months(count: Self.monthsShown, through: today)
         let year = usage.year(holding: today)
-        Panel {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("My GPU hours")
-                    Spacer(minLength: 0)
-                    Text(note)
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                HStack(alignment: .top, spacing: 24) {
-                    SlotTile(number: Format.hours(weeks.last?.hours ?? 0), caption: "this week", columns: weekColumns(weeks))
-                    SlotTile(number: Format.hours(months.last?.hours ?? 0), caption: "this month", columns: monthColumns(months))
-                    SlotTile(number: Format.hours(year.map(\.hours).reduce(0, +)), caption: "this year", columns: monthColumns(year))
-                    SlotTile(number: Format.hours(usage.totalHours), caption: "total", columns: totalColumns())
-                }
-            }
-            .padding(14)
-        }
+        let totals = usage.runningTotal(through: today, minimumMonths: Self.monthsShown)
+        HistoryPanel(
+            title: "My GPU hours",
+            note: note,
+            storageKey: "gpuHoursHistoryTab",
+            tabs: [
+                HistoryTab(caption: "This week", number: Format.hours(weeks.last?.hours ?? 0), unit: "GPU hours",
+                           columns: weekColumns(weeks), current: weeks.indices.last),
+                HistoryTab(caption: "This month", number: Format.hours(months.last?.hours ?? 0), unit: "GPU hours",
+                           columns: monthColumns(months), current: months.indices.last),
+                HistoryTab(caption: "This year", number: Format.hours(year.map(\.hours).reduce(0, +)), unit: "GPU hours",
+                           columns: monthColumns(year), current: year.lastIndex { $0.date <= today }),
+                HistoryTab(caption: "In total", number: Format.hours(usage.totalHours), unit: "GPU hours",
+                           columns: totalColumns(totals), current: totals.indices.last),
+            ]
+        )
     }
 
     private func hours(_ value: Double) -> String {
         "\(Format.hours(value)) GPU \(value == 1 ? "hour" : "hours")"
     }
 
-    /// Counted in from the right edge, where a whole date wouldn't fit under the last column.
+    /// Counted back from the current week, so it always has its date.
     private func weekColumns(_ weeks: [UsageSlot]) -> [SlotColumn] {
         weeks.enumerated().map { index, week in
-            let isLabeled = (weeks.count - 2 - index) % Self.weekLabelEvery == 0
+            let isLabeled = (weeks.count - 1 - index) % Self.weekLabelEvery == 0
             return SlotColumn(
                 value: week.hours,
                 label: isLabeled ? week.date.formatted(.dateTime.month(.abbreviated).day()) : nil,
@@ -149,21 +140,20 @@ struct GPUHoursPanel: View {
         months.map { month in
             SlotColumn(
                 value: month.hours,
-                label: month.date.formatted(.dateTime.month(.narrow)),
+                label: month.date.formatted(.dateTime.month(.abbreviated)),
                 tooltip: "\(month.date.formatted(Self.monthFormat)): \(hours(month.hours))"
             )
         }
     }
 
     /// Thinned out once the months stop fitting, counting back so the latest keeps its label.
-    private func totalColumns() -> [SlotColumn] {
-        let totals = usage.runningTotal(through: today, minimumMonths: Self.monthsShown)
+    private func totalColumns(_ totals: [UsageSlot]) -> [SlotColumn] {
         let every = totals.count <= Self.monthsShown + 2 ? 1 : 3
         return totals.enumerated().map { index, month in
             let isLabeled = (totals.count - 1 - index) % every == 0
             return SlotColumn(
                 value: month.hours,
-                label: isLabeled ? month.date.formatted(.dateTime.month(every == 1 ? .narrow : .abbreviated)) : nil,
+                label: isLabeled ? month.date.formatted(.dateTime.month(.abbreviated)) : nil,
                 tooltip: "Total by \(month.date.formatted(Self.monthFormat)): \(hours(month.hours))"
             )
         }

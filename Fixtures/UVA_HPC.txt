@@ -76,19 +76,6 @@ Home Directory     /home/me                         200.0 GB   151.8 GB    48.2 
 Scratch            /scratch/me                       10.0 TB   545.6 GB     9.5 TB    5%
 Research Standard  /standard/takolab                 10.0 TB     7.3 TB     2.7 TB   73%
 @@RC 0
-@@WINDOW
-2026-08-31 2026-10-30
-@@CHARGES
-Id,CreationTime,Amount
-584000001,2026-09-13 20:38:52,641.000
-584000002,2026-09-18 11:36:23,361.000
-584000003,2026-09-18 14:34:08,220.000
-584000004,2026-09-20 03:31:40,1498.000
-584000005,2026-09-20 13:55:58,1527.000
-584000006,2026-09-24 09:54:52,
-584000007,2026-09-28 17:00:49,22.000
-584545596,2026-10-30 18:55:17,0.000
-@@RC 0
 @@HISTORY_WINDOW
 2024-10-01 2026-10-30
 @@HISTORY
@@ -104,5 +91,31 @@ Id,CreationTime,Amount
 104|2026-10-26T08:00:00|2026-10-26T08:00:00|2026-10-26T09:00:00|COMPLETED|3600|billing=10,cpu=1,gres/gpu=4
 105|2026-10-30T19:02:13|2026-10-30T19:02:13|Unknown|RUNNING|3600|billing=16,cpu=4,gres/gpu=1
 106|2026-10-30T19:05:00|Unknown|Unknown|PENDING|0|
+@@RC 0
+@@WHO
+me:Sam_Student
+@@JOBS
+22300101|gpu|RUNNING|1-14:17:40|3-00:00:00|1|8|96G|gres/gpu:a6000:2|N/A|cpu=8,mem=96G,node=1,billing=8,gres/gpu=2|udc-an40-17|2026-10-29T00:28:13|2026-10-29T03:44:52|2026-11-01T02:44:52|takolab|/scratch/me/runs/train|/scratch/me/runs/train/slurm-22300101.out|train_moe_seed1|
+22300102_3|gpu|RUNNING|02:05:18|16:00:00|1|8|64G|gres/gpu:2|N/A|cpu=8,mem=64G,node=1,billing=734,gres/gpu=2|udc-ba11-3|2026-10-30T14:10:00|2026-10-30T15:52:00|2026-10-31T07:52:00|takolab|/scratch/me/runs/sweep|/scratch/me/runs/sweep/out_3.log|l2_b|sweep|
+22300106|standard|RUNNING|2-18:02:11|7-00:00:00|1|4|64G|N/A|N/A|cpu=4,mem=64G,node=1,billing=16|udc-aw34-6c1|2026-10-28T00:00:00|2026-10-28T00:00:10|2026-11-04T00:00:10|takolab|/home/me|/home/me/ood.log|ood_vscode|
+22300103|gpu|PENDING|0:00|1-00:00:00|1|8|96G|gres/gpu:a100:1|N/A|cpu=8,mem=96G,node=1,billing=582,gres/gpu=1|(Priority)|2026-10-30T16:53:48|2026-10-31T03:00:00|N/A|takolab|/scratch/me/runs/eval|/scratch/me/runs/eval/slurm-22300103.out|eval_a100|
+@@RC 0
+@@MEMBERS
+ab1cd
+jl4kx
+me
+tk2mq
+@@RC 0
+@@NAMES
+ab1cd:Alex_Doe
+jl4kx:Jordan_Lee
+me:Sam_Student
+tk2mq:
+@@LABJOBS
+me|22300101|gpu|RUNNING|1-14:17:40|3-00:00:00|1|8|96G|gres/gpu:a6000:2|N/A|cpu=8,mem=96G,node=1,billing=8,gres/gpu=2|udc-an40-17|2026-10-29T00:28:13|2026-10-29T03:44:52|2026-11-01T02:44:52|takolab|/scratch/me/runs/train|/scratch/me/runs/train/slurm-22300101.out|train_moe_seed1|
+me|22300106|standard|RUNNING|2-18:02:11|7-00:00:00|1|4|64G|N/A|N/A|cpu=4,mem=64G,node=1,billing=16|udc-aw34-6c1|2026-10-28T00:00:00|2026-10-28T00:00:10|2026-11-04T00:00:10|takolab|/home/me|/home/me/ood.log|ood_vscode|
+ab1cd|22300201|gpu|RUNNING|09:12:40|2-00:00:00|1|16|256G|gres/gpu:a100:4|N/A|cpu=16,mem=256G,node=1,billing=2400,gres/gpu=4|udc-an37-1|2026-10-30T05:00:00|2026-10-30T06:40:00|2026-11-01T06:40:00|takolab|/scratch/ab1cd/llm|/scratch/ab1cd/llm/out.log|pretrain_7b|
+ab1cd|22300202|gpu|PENDING|0:00|2-00:00:00|1|16|256G|gres/gpu:a100:4|N/A|cpu=16,mem=256G,node=1,billing=2400,gres/gpu=4|(Resources)|2026-10-30T12:00:00|N/A|N/A|takolab|/scratch/ab1cd/llm|/scratch/ab1cd/llm/out2.log|pretrain_7b_b|
+jl4kx|22300301|standard|RUNNING|03:01:00|12:00:00|1|32|128G|N/A|N/A|cpu=32,mem=128G,node=1,billing=32|udc-aw29-3c0|2026-10-30T12:00:00|2026-10-30T12:52:00|2026-10-31T00:52:00|takolab|/scratch/jl4kx/prep|/scratch/jl4kx/prep/log|tokenize_shards|
 @@RC 0
 @@END

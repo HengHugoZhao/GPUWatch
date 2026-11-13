@@ -30,6 +30,11 @@ public struct HPCSnapshot: Sendable {
     public var runningCreditsSoFar: Double { runningJobs.compactMap(\.creditsSoFar).reduce(0, +) }
     public var pendingCount: Int { activeJobs.filter { $0.phase == .pending }.count }
 
+    /// Going by its node, like `gpuMemoryTotalMB`. Nil across several nodes or off the GPU nodes.
+    public func gpuType(of job: SlurmJob) -> String? {
+        job.nodesOrReason.flatMap { gpuTypeByNode[$0] }
+    }
+
     /// All the memory on a job's GPUs, going by its node, since a job on `gpu` usually doesn't name
     /// a type. Nil across several nodes, whose list Slurm compresses, and for a type not in the table.
     public func gpuMemoryTotalMB(of job: SlurmJob) -> Int? {

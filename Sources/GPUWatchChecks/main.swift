@@ -80,6 +80,8 @@ func checkServerJobs() throws {
 
     let serverSnapshot = try ServerSnapshot.parse(fixture("ZheServer"))
     check(serverSnapshot.cpuCount == 256, "core count")
+    check(serverSnapshot.loadAverage == 96.42, "load average")
+    check(abs((serverSnapshot.cpuBusyFraction ?? 0) - 96.42 / 256) < 1e-9, "CPU busy fraction")
     let withWorkers = fixtureJobs[1]
     check(withWorkers.cpuSeconds == 24023 && abs((withWorkers.cpuCores ?? 0) - 24023.0 / 7523) < 0.0001, "children and grandchildren count, the launcher doesn't: \(withWorkers.cpuSeconds ?? -1)")
     check(withWorkers.ramMB == 5171, "RAM adds up across them: \(withWorkers.ramMB ?? -1)")
@@ -394,6 +396,38 @@ func checkJobHistory() throws {
     }
 }
 
+func checkLabMembers() throws {
+    let lab = try LabMembers.parse(fixture("UVA_HPC"), account: "takolab")
+    check(lab.members.map(\.id) == ["ab1cd", "me", "jl4kx", "tk2mq"], "busiest first, idle last: \(lab.members.map(\.id))")
+    let alex = lab.members[0]
+    check(alex.name == "Alex Doe" && alex.gpus == 4 && alex.cpus == 16 && alex.memoryMB == 256 * 1024, "Alex's running resources: \(alex.gpus) \(alex.cpus) \(alex.memoryMB)")
+    check(alex.pendingJobs.map(\.id) == ["22300202"], "a queued job doesn't count as held")
+    let me = lab.members[1]
+    check(me.gpus == 2 && me.cpus == 12 && me.runningJobs.count == 2, "my running jobs: \(me.gpus) \(me.cpus)")
+    check(lab.members[3].isIdle && lab.members[3].name == nil, "a member with no jobs and no name")
+    check(lab.gpus == 6 && lab.activeCount == 3, "lab totals: \(lab.gpus) GPUs, \(lab.activeCount) active")
+    check(RemoteScripts.labMembers.contains("squeue -a -A takolab -h -O \"UserName:|,JobID:|"), "user leads the squeue fields")
+    check(RemoteScripts.labMembers.contains("printf '%s\\n' \"$users\""), "the shell gets a real newline escape")
+}
+
+func checkUserLookup() throws {
+    let lookup = try UserLookup.parse(fixture("UVA_HPC"), id: "me")
+    check(lookup.name == "Sam Student", "the name comes from getent: \(lookup.name ?? "nil")")
+    check(lookup.runningGPUJobs.map(\.id) == ["22300101", "22300102_3"], "running GPU jobs: \(lookup.runningGPUJobs.map(\.id))")
+    check(lookup.gpusNow == 4 && lookup.otherRunningCount == 1, "GPUs held now, and running jobs without any: \(lookup.gpusNow), \(lookup.otherRunningCount)")
+    check(lookup.pendingGPUJobs.map(\.id) == ["22300103"], "pending GPU jobs: \(lookup.pendingGPUJobs.map(\.id))")
+    let snapshot = try HPCSnapshot.parse(fixture("UVA_HPC"))
+    let types = lookup.runningGPUJobs.map { snapshot.gpuType(of: $0) }
+    check(types == ["a6000", "b200"], "a GPU's type comes from its node, also when the job didn't name one: \(types)")
+    check(lookup.gpuSummary(snapshot: snapshot) == "2 × a6000, 2 × b200", "GPUs by type: \(lookup.gpuSummary(snapshot: snapshot))")
+
+    let nobody = try UserLookup.parse("@@TZ\n-0400\n@@WHO\n@@JOBS\n@@RC 0\n@@END\n", id: "zz9zz")
+    check(nobody.name == nil && !nobody.exists, "an ID the cluster doesn't know")
+    let idle = try UserLookup.parse("@@TZ\n-0400\n@@WHO\nab1cd:\n@@JOBS\n@@RC 0\n@@END\n", id: "ab1cd")
+    check(idle.exists && idle.gpusNow == 0 && idle.name == nil, "a known ID with nothing running and no name on file")
+    check(RemoteScripts.userLookup("ab1cd").contains("squeue -a -u ab1cd"), "the script asks about that user")
+}
+
 func checkGPUHours() throws {
     let history = try JobHistory.parse(fixture("UVA_HPC"))
     let usage = history.gpuUsage
@@ -443,48 +477,6 @@ func checkGPUHours() throws {
 }
 
 func checkCharges() throws {
-    let charges = try MyCharges.parse(fixture("UVA_HPC"))
-    check(charges.total == 4269 && charges.count == 8, "fixture charges: \(charges)")
-    check(charges.days.map(\.total) == [641, 581, 3025, 0, 22, 0], "charges add up by day: \(charges.days.map(\.total))")
-    check(charges.days.map(\.jobs) == [1, 2, 2, 1, 1, 1], "jobs count by day, free ones included: \(charges.days.map(\.jobs))")
-    check(charges.busiestDay?.total == 3025, "busiest day: \(String(describing: charges.busiestDay))")
-    check(charges.days.map(\.level) == [3, 3, 5, 0, 1, 0], "heatmap levels: \(charges.days.map(\.level))")
-    let levels = [1, 99, 100, 499, 500, 999, 1000, 1999, 2000, 90000].map { ChargeDay(date: .now, total: $0, jobs: 1).level }
-    check(levels == [1, 1, 2, 2, 3, 3, 4, 4, 5, 5], "a level starts at its edge: \(levels)")
-    var sundayFirst = Calendar(identifier: .gregorian)
-    sundayFirst.firstWeekday = 1
-    let weeks = charges.weeks(calendar: sundayFirst)
-    check(weeks.count == 9 && weeks.allSatisfy { $0.count == 7 }, "Aug 31 to Oct 30 spans 9 Sunday-first weeks: \(weeks.count)")
-    check(weeks[0][0] == nil && weeks[0][1] == charges.firstDay, "the window starts on a Monday")
-    check(weeks[8][5] == charges.lastDay && weeks[8][6] == nil, "the window ends on a Friday")
-    check(weeks.joined().compactMap { $0 }.count == 61, "every day in the window has one slot")
-    check(charges.day(on: charges.days[2].date)?.total == 3025, "a charged day is found by its date")
-    check(charges.day(on: charges.firstDay) == nil, "a day with no charges has no entry")
-    let calendarDay = { (date: Date) in Calendar.current.dateComponents([.month, .day], from: date) }
-    check(charges.days.first.map { calendarDay($0.date) } == DateComponents(month: 9, day: 13), "a charge keeps the cluster's date")
-    check(calendarDay(charges.firstDay) == DateComponents(month: 8, day: 31), "window start")
-    check(calendarDay(charges.lastDay) == DateComponents(month: 10, day: 30), "window end")
-    let none = try MyCharges.parse("@@WINDOW\n2026-08-31 2026-10-30\n@@CHARGES\n@@RC 0\n@@END\n")
-    check(none.total == 0 && none.count == 0 && none.days.isEmpty && none.busiestDay == nil, "no charges is an answer")
-    do {
-        _ = try MyCharges.parse("@@CHARGES\n584000001,2026-09-20 13:55:58,1527.000\n@@RC 0\n@@END\n")
-        check(false, "a reply without its dates must be reported")
-    } catch let failure as FetchFailure {
-        check(failure.detail.contains("dates"), "missing window detail: \(failure.detail)")
-    }
-    do {
-        _ = try MyCharges.parse("@@CHARGES\n@@RC 124\n@@END\n")
-        check(false, "a timeout must be reported")
-    } catch let failure as FetchFailure {
-        check(failure.detail == "Timed out", "timeout detail: \(failure.detail)")
-    }
-    do {
-        _ = try MyCharges.parse("@@CHARGES\n584000001,1527.000\n")
-        check(false, "output without @@END must be rejected")
-    } catch let failure as FetchFailure {
-        check(failure.headline.contains("dropped"), "truncation message")
-    }
-
     // Real jobs: Slurm's billing weight against what MAM charged.
     for (billing, seconds, charged) in [(1468, 36742, 1498), (1468, 37437, 1527), (1499, 15388, 641), (1434, 13729, 547), (734, 21468, 438), (9, 86419, 22)] {
         let line = "1|gpu|RUNNING|\(seconds)||1|1|0|||billing=\(billing)||||||||n"
@@ -666,9 +658,6 @@ func live(as user: String) async {
         for error in [hpc.nodesError, hpc.activeJobsError, hpc.finishedJobsError, hpc.allocationError, hpc.storageError].compactMap({ $0 }) { print("  section error: \(error)") }
     } catch { print("UVA_HPC failed: \(error)") }
     do {
-        let start = Date()
-        let charges = try await Fetch.myCharges(as: user)
-        print("My charges, last \(RemoteScripts.chargeWindowDays) days, in \(String(format: "%.1f", Date().timeIntervalSince(start)))s: \(Format.credits(charges.total)) SUs across \(charges.count) charges")
         let history = try await Fetch.jobHistory(monthsBack: RemoteScripts.jobHistoryMonths, as: user)
         let total = { (slots: [ActivitySlot]) in slots.map(\.count).reduce(0, +) }
         print("Jobs submitted: \(total(history.week())) this week, \(total(history.month())) this month, \(total(history.year())) this year")
@@ -679,10 +668,14 @@ func live(as user: String) async {
                 print("  Mine on \(grant.description.isEmpty ? "(unnamed)" : grant.description): \(history.charges(on: grants)[grant.id].map(Format.credits) ?? "unknown") of \(Format.credits(grant.used)) SUs")
             }
         }
-        for day in charges.days where day.total > 0 {
-            print("  \(day.date.formatted(.dateTime.month(.abbreviated).day())): \(Format.credits(day.total)) SUs, \(day.jobs) jobs")
+    } catch { print("Job history failed: \(error)") }
+    do {
+        let lab = try await Fetch.labMembers(as: user)
+        print("Lab members on \(lab.account): \(lab.members.count), \(lab.activeCount) running something, \(lab.gpus) GPUs held")
+        for member in lab.members {
+            print("  \(member.id): \(member.runningJobs.count) running, \(member.pendingJobs.count) queued, \(member.gpus) GPUs, \(member.cpus) CPUs, \(Format.memory(mb: member.memoryMB))")
         }
-    } catch { print("My charges failed: \(error)") }
+    } catch { print("Lab members failed: \(error)") }
 }
 
 func countParsed(path: String, parse: (String, DateFormatter) -> SlurmJob?) {
@@ -724,6 +717,8 @@ do {
     try checkCharges()
     try checkJobHistory()
     try checkGPUHours()
+    try checkUserLookup()
+    try checkLabMembers()
     checkFormats()
     checkSignIn()
 } catch {

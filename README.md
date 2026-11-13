@@ -13,7 +13,9 @@ It reads over SSH, signed in as you, and never changes anything on either machin
 - **Free GPUs at a glance.** ZheServer's 8 GPUs as free, partly free or full, and UVA HPC's GPUs by type as ready, backfill, in use or offline, so you can tell whether a job would start now.
 - **Your jobs.** Running, pending and recently finished jobs on both machines, each with bars for what it's using: CPU, RAM, GPU and GPU memory. Pending jobs say why they're waiting.
 - **Your jobs and GPU hours** this week, month and year, and in total, on each machine.
-- **Lab allocation.** Your share of the SUs the lab has used on each grant, your charges per day, and an estimate for jobs still running.
+- **Who's using GPUs.** Type anyone's computing ID to see whether they're using GPUs on UVA HPC right now, and which.
+- **Lab allocation.** Each grant's SUs used and left, your share of what the lab has used, and an estimate for jobs still running.
+- **Lab members.** Everyone on the lab's account, busiest first, with the GPUs, CPUs and memory their running jobs hold. Open a member to see their jobs.
 - **CPU memory and storage** for each machine, including your scratch space and the lab's shared storage.
 
 The sidebar keeps both machines in view whichever page is open. The pin at the top left keeps the window above other apps. The app refreshes on its own, every 30 seconds for ZheServer and every 60 for UVA HPC, and stops asking the cluster while the window is hidden.
@@ -111,23 +113,26 @@ The `dedicated` partition and hidden partitions aren't counted, since they aren'
 CPU memory appears on both pages, measured differently:
 
 - **ZheServer:** in use is `MemTotal` minus `MemAvailable` from `/proc/meminfo`, so disk cache Linux can reclaim doesn't count. This reads a little higher than the `used` column of `free`, which excludes some memory that can't be reclaimed.
-- **UVA HPC:** allocated is what Slurm has reserved for running jobs (`AllocMem`), for GPU nodes in total, per GPU type, and as a bar for each node. Click a GPU type or **Show all nodes** to see the bars. Allocation is what decides whether a new job fits, though jobs may actually be using less.
+- **UVA HPC:** allocated is what Slurm has reserved for running jobs (`AllocMem`), for GPU nodes in total, per GPU type, and as a bar for each node. Click a GPU type's card or **Show all nodes** to see its nodes. Allocation is what decides whether a new job fits, though jobs may actually be using less.
 
 Storage appears on both pages, measured differently:
 
 - **ZheServer:** `/p/simple` comes from `df`. It's its own volume, so this covers everyone who uses it.
 - **UVA HPC:** `/home/<ID>/scratch` and `/standard/takolab` come from `hdquota`, because `df` on `/standard` reports all of UVA's shared filesystem rather than the lab's quota. `/home/<ID>/scratch` is a link to `/scratch/<ID>`, whose total is UVA's soft limit.
 
-**Lab allocation** shows your share of what the lab has used on each grant, your own use of service units (SUs), then each grant on the `takolab` account with its dates and how much the whole lab has used. Expired grants stay collapsed until you open them, both under your share and in the grant list.
+**Lab allocation** shows a card for each grant on the `takolab` account: its dates, how much the whole lab has used and what's left, and your own share of that use, in service units (SUs). Expired grants stay collapsed until you open them.
 
-- **Your charges** cover the last 60 days, because older accounting queries don't finish in a reasonable time, and Slurm's own history is capped at 31 days per query. A histogram and a heatmap show them per day, counted on the day the job ended. The heatmap has a column per week and a row per weekday. Hover over a day in either for its amount and number of jobs. This query refreshes every 15 minutes and when one of your jobs ends, rather than every minute.
 - **Your share** of a grant is what you've been charged on it over what the lab has used on it. The accounting system can't go back far enough, so your side comes from Slurm's job history: billing rate, run time and outcome, attributed to the grant open when the job ended. That matched all 84 real charges it could be checked against.
 - **Your running jobs** are an estimate, shown beside the total because they aren't part of it yet. A job costs a tenth of its Slurm `billing=` value per hour (`billing=1468` for 36,742 seconds was charged 1,498 SUs), and nothing is charged until it ends. Failed, cancelled and out-of-memory jobs end up free.
+
+**Lab members** lists everyone `sacctmgr` has on the `takolab` account, named from `getent passwd`, with every job `squeue -A takolab` shows charged to it. A member's GPUs, CPUs and memory are what their running jobs hold; queued jobs are counted separately. It refreshes every 2 minutes and when you refresh.
 
 **GPU hours** appear on both pages, per week, per month, for each month of this year and in total, measured differently:
 
 - **UVA HPC:** GPUs allocated × run time from Slurm's job history, split across the weeks and months each job ran in. This includes failed and cancelled jobs, which held their GPUs even though they're free.
 - **ZheServer:** the machine keeps no usage history, so the app records what it sees, in `~/Library/Application Support/GPU Watch/zheserver-gpu-usage-<ID>.json`, one file per computing ID. A process counts from when it really started to the last time the app saw it, and a GPU counts once however many of your processes share it. Work from before the first recording isn't there. A job that starts and ends while the app is closed or the Mac is asleep isn't counted, and a job that ends then loses the time after it was last seen.
+
+**Who's using GPUs** looks up any computing ID on UVA HPC: their name from `getent passwd`, then their running and pending jobs from `squeue -u`. It says how many GPUs they hold right now and of what type, then lists each GPU job with its partition, node or reason for waiting, and how long it has run. A GPU's type comes from the node the job runs on, since most jobs on `gpu` don't name one. The lookup refreshes every 30 minutes, or when you press refresh.
 
 **What a job actually used** appears on each running and finished job, with exact numbers when you hover. Finished jobs come from `sacct`, running ones from `sstat`, for up to 50 running jobs. Slurm keeps no record over time, so a finished job has one number for each of these:
 

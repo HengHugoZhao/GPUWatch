@@ -16,10 +16,9 @@ struct SignInView: View {
             VStack(spacing: 8) {
                 Image(systemName: "cpu")
                     .font(.system(size: 44))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Theme.accent)
                 Text("GPU Watch")
-                    .font(.largeTitle)
-                    .fontWeight(.semibold)
+                    .display(32)
                 Text("Sign in with your UVA computing ID to see your jobs on \(RemoteScripts.serverHost) and UVA HPC.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)

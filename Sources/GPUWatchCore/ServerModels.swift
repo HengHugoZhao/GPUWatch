@@ -138,6 +138,8 @@ public struct ServerSnapshot: Sendable {
     /// Nil if the server didn't report it; that shouldn't cost the GPU view.
     public let memory: SystemMemory?
     public let cpuCount: Int?
+    /// Runnable processes averaged over the last minute, from `/proc/loadavg`.
+    public let loadAverage: Double?
     let ownProcesses: [OwnProcess]
     public let storage: StorageUsage?
     public let storageError: String?
@@ -190,6 +192,21 @@ public struct ServerSnapshot: Sendable {
         }
         return family
     }
+
+    /// How busy the CPUs are: load over cores, capped at 1 since a queue past every core is still "all busy".
+    public var cpuBusyFraction: Double? {
+        guard let loadAverage, let cpuCount, cpuCount > 0 else { return nil }
+        return min(loadAverage / Double(cpuCount), 1)
+    }
+
+    /// Mean utilization over the GPUs that reported one.
+    public var meanGPUUtilization: Double? {
+        let readings = gpus.compactMap(\.utilizationPercent)
+        return readings.isEmpty ? nil : Double(readings.reduce(0, +)) / Double(readings.count) / 100
+    }
+
+    public var gpuMemoryUsedMiB: Int { gpus.map(\.memoryUsedMiB).reduce(0, +) }
+    public var gpuMemoryTotalMiB: Int { gpus.map(\.memoryTotalMiB).reduce(0, +) }
 
     public func count(_ availability: GPUAvailability) -> Int {
         gpus.filter { $0.availability == availability }.count
@@ -270,6 +287,7 @@ extension ServerSnapshot {
             gpus: gpus.sorted { $0.index < $1.index },
             memory: SystemMemory(meminfo: output.sections["MEM"]?.lines ?? []),
             cpuCount: output.firstLine("CPUS").flatMap { Int($0) },
+            loadAverage: output.firstLine("LOAD").flatMap { $0.split(separator: " ").first.flatMap { Double($0) } },
             ownProcesses: (output.sections["MYPS"]?.lines ?? []).compactMap(OwnProcess.init(psLine:)),
             storage: storage,
             storageError: diskSection?.failureMessage ?? (storage == nil ? "Not reported" : nil)

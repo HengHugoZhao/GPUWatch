@@ -8,8 +8,14 @@ extension Color {
     }
 
     fileprivate static func adaptive(light: UInt32, dark: UInt32) -> Color {
+        adaptive(light: light, lightAlpha: 1, dark: dark, darkAlpha: 1)
+    }
+
+    fileprivate static func adaptive(light: UInt32, lightAlpha: CGFloat, dark: UInt32, darkAlpha: CGFloat) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
-            NSColor(hex: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light)
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? NSColor(hex: dark).withAlphaComponent(darkAlpha)
+                : NSColor(hex: light).withAlphaComponent(lightAlpha)
         })
     }
 }
@@ -28,13 +34,36 @@ extension NSColor {
 /// Status colors mean state and always ride next to an icon or a label. Neutrals carry the
 /// parts of a bar nobody needs to act on, so free GPUs are the only loud thing on the page.
 enum Theme {
-    static let good = Color(hex: 0x0CA30C)
-    static let warning = Color(hex: 0xFAB219)
-    static let serious = Color(hex: 0xEC835A)
-    static let critical = Color(hex: 0xD03B3B)
+    // Surfaces and type after Linear's design language: a canvas, panels one step up it with
+    // hairline borders, and one lavender accent kept for selection, focus and the main action.
+    // Linear documents only its dark mode; the light steps keep the same ladder.
 
-    static let meter = Color.adaptive(light: 0x2A78D6, dark: 0x3987E5)
-    static let meterTrack = Color.adaptive(light: 0xCDE2FB, dark: 0x0D366B)
+    /// Laid over the glass so the desktop shows through as colour, not as detail.
+    static let canvasTint = Color.adaptive(light: 0xF4F4F7, lightAlpha: 0.62, dark: 0x111216, darkAlpha: 0.62)
+
+    // The page is the desktop seen through frosted glass, so panels are tints over it rather than
+    // solid fills: a milky white in light mode, a faint lift in dark.
+    static let surface = Color.adaptive(light: 0xFFFFFF, lightAlpha: 0.62, dark: 0xFFFFFF, darkAlpha: 0.055)
+    /// A hovered row, or a card that isn't selected.
+    static let surfaceRaised = Color.adaptive(light: 0xFFFFFF, lightAlpha: 0.85, dark: 0xFFFFFF, darkAlpha: 0.09)
+    static let hairline = Color.adaptive(light: 0x000000, lightAlpha: 0.08, dark: 0xFFFFFF, darkAlpha: 0.08)
+    static let hairlineStrong = Color.adaptive(light: 0x000000, lightAlpha: 0.14, dark: 0xFFFFFF, darkAlpha: 0.14)
+    /// Panels catch a faint light along their top edge.
+    static let edgeHighlight = Color.adaptive(light: 0xFFFFFF, lightAlpha: 0.9, dark: 0xFFFFFF, darkAlpha: 0.16)
+
+    static let accent = Color.adaptive(light: 0x5B5BF6, dark: 0x8287FF)
+    static let accentSoft = Color.adaptive(light: 0xE8E8FE, dark: 0x262760)
+
+    static let radius: CGFloat = 12
+    static let smallRadius: CGFloat = 8
+
+    static let good = Color.adaptive(light: 0x16A34A, dark: 0x34D27A)
+    static let warning = Color.adaptive(light: 0xF59E0B, dark: 0xFBBF24)
+    static let serious = Color.adaptive(light: 0xF97316, dark: 0xFF8B3D)
+    static let critical = Color.adaptive(light: 0xE5484D, dark: 0xFF6369)
+
+    static let meter = accent
+    static let meterTrack = Color.adaptive(light: 0x5B5BF6, lightAlpha: 0.13, dark: 0x8287FF, darkAlpha: 0.18)
 
     static let time = Color.adaptive(light: 0x8C9A00, dark: 0xB6E62E)
     static let timeTrack = Color.adaptive(light: 0xECEFC2, dark: 0x36431A)
@@ -42,15 +71,24 @@ enum Theme {
     static let stranded = Color(hex: 0x898781)
     static let inUse = Color.adaptive(light: 0xC3C2B7, dark: 0x52514E)
     static let barTrack = Color.adaptive(light: 0xEDECE6, dark: 0x2C2C2A)
+}
 
-    /// The heatmap's levels, least to most. One hue, stronger against the surface in either mode.
-    static let heat = [
-        Color.adaptive(light: 0x88B6F1, dark: 0x1B4F8A),
-        Color.adaptive(light: 0x65A1EB, dark: 0x2161A8),
-        Color.adaptive(light: 0x438CE2, dark: 0x2A74C6),
-        Color.adaptive(light: 0x2A6FC4, dark: 0x66A9F2),
-        Color.adaptive(light: 0x124F9E, dark: 0xA8CFFA),
-    ]
+/// The window's backdrop: whatever is behind it, blurred, like the sidebar.
+struct Glass: NSViewRepresentable {
+    /// The see-through one: the windows and wallpaper behind tint the page, not just its brightness.
+    var material: NSVisualEffectView.Material = .fullScreenUI
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .behindWindow
+        view.state = .followsWindowActiveState
+        view.material = material
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+    }
 }
 
 /// One value out of a whole: memory used, GPU busy.
@@ -63,14 +101,66 @@ struct Meter: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(Theme.meterTrack)
                 if fraction > 0 {
+                    let width = max(geometry.size.width * min(fraction, 1), 4)
                     Capsule()
                         .fill(Theme.meter)
-                        .frame(width: max(geometry.size.width * min(fraction, 1), 4))
+                        .frame(width: width)
                 }
             }
         }
         .frame(height: height)
         .accessibilityValue("\(Int((min(max(fraction, 0), 1)) * 100)) percent")
+    }
+}
+
+/// One share of a whole as an arc, for a number that stands alone, like how busy a GPU is.
+/// Starts at 12 o'clock and runs clockwise, on its own track.
+struct Ring: View {
+    let fraction: Double?
+    var lineWidth: CGFloat = 6
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Theme.meterTrack, lineWidth: lineWidth)
+            if let fraction, fraction > 0 {
+                Circle()
+                    .trim(from: 0, to: max(min(fraction, 1), 0.02))
+                    .stroke(Theme.meter, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+        }
+        .padding(lineWidth / 2)
+        .accessibilityValue(fraction.map { "\(Int(min(max($0, 0), 1) * 100)) percent" } ?? "No reading")
+    }
+}
+
+/// A headline number on its own panel, with what it counts beneath and, optionally, its bar.
+struct StatTile<Visual: View>: View {
+    let title: String
+    let value: String
+    let caption: String
+    @ViewBuilder var visual: Visual
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .eyebrow()
+                .foregroundStyle(.secondary)
+            Text(value)
+                .display(26)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            visual
+            Text(caption)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .surface()
     }
 }
 
@@ -180,6 +270,22 @@ struct Swatch: View {
     }
 }
 
+/// A job's state as a dot, for a card whose right side already says what's going on. The word is
+/// in its tooltip and its accessibility label, so the colour isn't the only signal.
+struct StatusDot: View {
+    let status: StatusLabel
+
+    var body: some View {
+        Circle()
+            .fill(status.color)
+            .frame(width: 8, height: 8)
+            .background(Circle().fill(status.color.opacity(0.25)).frame(width: 14, height: 14))
+            .frame(width: 14, height: 14)
+            .help(status.text)
+            .accessibilityLabel(status.text)
+    }
+}
+
 /// A status is always an icon and a word, never color alone.
 struct StatusLabel: View {
     let symbol: String
@@ -237,17 +343,43 @@ extension GrantPhase {
     }
 }
 
+/// Display type pulls its tracking in as it grows, as Linear's does; small labels open it up.
+extension Text {
+    func display(_ size: CGFloat, weight: Font.Weight = .semibold) -> Text {
+        font(.system(size: size, weight: weight)).tracking(-size * 0.025)
+    }
+
+    /// A small label naming what's below it, like a column heading or a panel's title.
+    func eyebrow() -> Text {
+        font(.caption.weight(.medium)).tracking(0.3)
+    }
+}
+
 struct SectionHeader: View {
     let title: String
     let detail: String?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(title).font(.title2.weight(.semibold))
+            Text(title).display(20)
             if let detail {
                 Text(detail).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+/// A small pill beside a name, in the accent: Linear's status badge.
+struct Tag: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(Theme.accent)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 1)
+            .background(Theme.accentSoft, in: Capsule())
     }
 }
 
@@ -284,46 +416,53 @@ struct SectionError: View {
     }
 }
 
-/// A total and how much of it is taken: CPU memory on a machine or a pool of nodes, or storage.
-struct UsageMeter: View {
-    let title: String
-    let usedMB: Int
-    let totalMB: Int
-    let usedWord: String
-    let remainderWord: String
-    let explanation: String
+/// One storage location: how full it is as a ring, the amounts beside it, and a warning near the top.
+struct StorageCard: View {
+    let storage: StorageUsage
+
+    private static let ringSize: CGFloat = 64
+    private static let almostFull = 0.9
+
+    private var fraction: Double { storage.totalMB > 0 ? Double(storage.usedMB) / Double(storage.totalMB) : 0 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                Text("\(Format.memory(mb: usedMB)) / \(Format.memory(mb: totalMB)) \(usedWord)")
-                Spacer(minLength: 4)
-                Text("\(Format.memory(mb: max(totalMB - usedMB, 0))) \(remainderWord)")
-                    .foregroundStyle(.secondary)
+        HStack(spacing: 16) {
+            ZStack {
+                Ring(fraction: fraction, lineWidth: 7)
+                Text("\(Int((fraction * 100).rounded()))%")
+                    .font(.system(size: 14, weight: .semibold))
+                    .monospacedDigit()
             }
-            .font(.callout)
-            .monospacedDigit()
-            .lineLimit(1)
-            Meter(fraction: totalMB > 0 ? Double(usedMB) / Double(totalMB) : 0)
+            .frame(width: Self.ringSize, height: Self.ringSize)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: "internaldrive")
+                        .foregroundStyle(Theme.accent)
+                    Text(storage.path)
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                Text("\(Format.memory(mb: storage.usedMB)) of \(Format.memory(mb: storage.totalMB)) used")
+                    .font(.callout)
+                    .monospacedDigit()
+                HStack(spacing: 8) {
+                    Text("\(Format.memory(mb: max(storage.totalMB - storage.usedMB, 0))) free")
+                        .foregroundStyle(.secondary)
+                    if fraction >= Self.almostFull {
+                        StatusLabel(symbol: "exclamationmark.triangle.fill", color: Theme.serious, text: "Almost full")
+                    }
+                }
+                .font(.caption)
+                .monospacedDigit()
+            }
+            Spacer(minLength: 0)
         }
-        .frame(width: 300)
-        .help(explanation)
-    }
-}
-
-extension UsageMeter {
-    init(storage: StorageUsage) {
-        self.init(
-            title: storage.path,
-            usedMB: storage.usedMB,
-            totalMB: storage.totalMB,
-            usedWord: "used",
-            remainderWord: "free",
-            explanation: storage.note
-        )
+        .padding(14)
+        .frame(maxWidth: 380, alignment: .leading)
+        .surface()
+        .help(storage.note)
     }
 }
 
@@ -339,28 +478,8 @@ struct StorageSection: View {
             if let error {
                 SectionError(message: "\(errorSource): \(error)")
             }
-            HStack(spacing: 24) {
-                ForEach(storage) { UsageMeter(storage: $0) }
-            }
-        }
-    }
-}
-
-/// A headline number with a smaller readout beside it, or below it in a narrow window.
-struct HeadlineRow<Hero: View, Side: View>: View {
-    @ViewBuilder let hero: Hero
-    let side: Side
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .bottom, spacing: 24) {
-                hero
-                Spacer(minLength: 0)
-                side
-            }
-            VStack(alignment: .leading, spacing: 12) {
-                hero
-                side
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(storage) { StorageCard(storage: $0) }
             }
         }
     }
@@ -372,21 +491,31 @@ struct Panel<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) { content }
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+            .surface()
+    }
+}
+
+extension View {
+    /// A panel's lift off the canvas: its own surface, a hairline, and in dark mode a lit top edge.
+    func surface(_ fill: Color = Theme.surface, border: Color = Theme.hairline, radius: CGFloat = Theme.radius) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius)
+        return background(fill, in: shape)
             .overlay {
-                RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+                shape.strokeBorder(
+                    LinearGradient(colors: [Theme.edgeHighlight, border], startPoint: .top, endPoint: .init(x: 0.5, y: 0.08)),
+                    lineWidth: 1
+                )
             }
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(shape)
     }
 }
 
 /// A list of jobs that takes only the height it needs, and scrolls once that passes `maxHeight`.
 /// A plain `ScrollView` inside the page's own has no height of its own to go by, so this measures.
 struct CappedScroll<Content: View>: View {
-    /// A bit under four job rows with bars, so a row cut off at the bottom shows there's more.
-    private static var maxHeight: CGFloat { 290 }
-
     var isCapped = true
+    /// By default a bit under four job rows with bars, so a row cut off at the bottom shows there's more.
+    var maxHeight: CGFloat = 290
     @ViewBuilder let content: Content
     /// `State` as a plain stored value: the `@State` macro's plugin isn't in the Command Line Tools.
     private let height = State(initialValue: CGFloat(0))
@@ -397,7 +526,7 @@ struct CappedScroll<Content: View>: View {
                 VStack(alignment: .leading, spacing: 0) { content }
                     .onGeometryChange(for: CGFloat.self, of: \.size.height) { height.wrappedValue = $0 }
             }
-            .frame(height: min(height.wrappedValue, Self.maxHeight))
+            .frame(height: min(height.wrappedValue, maxHeight))
         } else {
             VStack(alignment: .leading, spacing: 0) { content }
         }
@@ -432,7 +561,7 @@ private struct HoverHighlight<Content: View>: View {
     var body: some View {
         content
             .contentShape(Rectangle())
-            .background(Color.primary.opacity(isHovered.wrappedValue ? 0.04 : 0))
+            .background(isHovered.wrappedValue ? Theme.surfaceRaised : Color.clear)
             .onHover { isHovered.wrappedValue = $0 }
     }
 }

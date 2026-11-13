@@ -38,30 +38,35 @@ final class AppModel {
     private static let hpcInterval: TimeInterval = 60
     /// Often enough that GPU hours on ZheServer keep adding up with the window hidden.
     private static let hiddenServerInterval: TimeInterval = 300
-    /// A backstop: charges mostly refresh when a job ends. It's the cluster's slowest query.
-    private static let chargesInterval: TimeInterval = 900
-    /// MAM records a charge a few seconds after a job leaves the queue.
-    private static let chargeDelay: Duration = .seconds(15)
+    /// A backstop: the job history mostly refreshes when the queue changes.
+    private static let historyInterval: TimeInterval = 900
+    /// Who in the lab holds what changes as jobs start and end, but not every minute.
+    private static let labMembersInterval: TimeInterval = 120
+    /// A looked-up user is a glance at who's busy, not something to watch minute by minute.
+    private static let lookupInterval: TimeInterval = 1800
 
     /// Who the app signs in as on both machines. Nil shows the sign-in page.
     private(set) var user: String?
     var page: Page = .server
     private(set) var server = Feed<ServerSnapshot>()
     private(set) var hpc = Feed<HPCSnapshot>()
-    private(set) var charges = Feed<MyCharges>()
     private(set) var jobHistory = Feed<JobHistory>()
+    /// Whose jobs `lookup` shows, and what's typed in its field.
+    private(set) var lookupID: String?
+    var lookupText = ""
+    private(set) var lookup = Feed<UserLookup>()
+    private(set) var labMembers = Feed<LabMembers>()
     private(set) var serverUsage = ServerUsageLedger()
 
     // Which rows are open. Kept here so they survive refreshes and switching pages.
     var expandedJobs: Set<String> = []
     var expandedGPUTypes: Set<String> = []
+    var expandedMembers: Set<String> = []
     var showsFinishedJobs = false
     var showsAllActiveJobs = false
     var showsInactiveGrants = false
-    var showsInactiveShares = false
 
     private var started = false
-    private var chargesRequestedAt: Date?
     /// Bumped at each sign-in and sign-out, so a fetch still running for the last user is dropped.
     private var session = 0
     @ObservationIgnored private var pollers: [Task<Void, Never>] = []
@@ -118,16 +123,18 @@ final class AppModel {
         page = .server
         server = Feed()
         hpc = Feed()
-        charges = Feed()
         jobHistory = Feed()
+        lookupID = nil
+        lookupText = ""
+        lookup = Feed()
+        labMembers = Feed()
         serverUsage = ServerUsageLedger()
-        chargesRequestedAt = nil
         expandedJobs = []
         expandedGPUTypes = []
+        expandedMembers = []
         showsFinishedJobs = false
         showsAllActiveJobs = false
         showsInactiveGrants = false
-        showsInactiveShares = false
         Task {
             await SSH.dropConnection(on: RemoteScripts.serverMachine, as: previous)
             await SSH.dropConnection(on: RemoteScripts.hpcMachine, as: previous)
@@ -137,7 +144,7 @@ final class AppModel {
     func refreshCurrentPage() {
         switch page {
         case .server: Task { await refreshServer() }
-        case .hpc: Task { await refreshHPC(includingCharges: true) }
+        case .hpc: Task { await refreshHPC(everything: true) }
         }
     }
 
@@ -223,21 +230,50 @@ final class AppModel {
         try? data.write(to: file, options: .atomic)
     }
 
-    private func refreshHPC(includingCharges: Bool = false) async {
-        let runningBefore = Set(hpc.value?.runningJobs.map(\.id) ?? [])
+    /// `everything` for a refresh the user asked for, which shouldn't wait for anything to be stale.
+    private func refreshHPC(everything: Bool = false) async {
         let activeBefore = Set(hpc.value?.activeJobs.map(\.id) ?? [])
         await refresh(\.hpc) { try await Fetch.hpc(as: $0) }
-        let jobEnded = !runningBefore.isSubset(of: Set(hpc.value?.runningJobs.map(\.id) ?? []))
         // A newly submitted job should count right away, not at the next 15-minute refresh.
         let jobsChanged = activeBefore != Set(hpc.value?.activeJobs.map(\.id) ?? [])
-        if includingCharges || jobsChanged || isStale(jobHistory.updatedAt, Self.chargesInterval) {
+        if everything || jobsChanged || isStale(jobHistory.updatedAt, Self.historyInterval) {
             Task { await refreshJobHistory() }
         }
-        guard includingCharges || jobEnded || isStale(chargesRequestedAt, Self.chargesInterval) else { return }
-        chargesRequestedAt = .now
+        if let lookupID, everything || isStale(lookup.updatedAt, Self.lookupInterval) {
+            lookUp(lookupID)
+        }
+        if everything || isStale(labMembers.updatedAt, Self.labMembersInterval) {
+            Task { await refresh(\.labMembers) { try await Fetch.labMembers(as: $0) } }
+        }
+    }
+
+    /// Not through `refresh`, which skips a fetch while one is running: a new ID replaces the old
+    /// one, and a late answer about the old one is dropped.
+    func lookUp(_ text: String) {
+        guard let user, let id = ComputingID.normalized(text) else { return }
+        if id != lookupID { lookup = Feed() }
+        lookupID = id
+        lookup.isLoading = true
+        let session = self.session
         Task {
-            if jobEnded { try? await Task.sleep(for: Self.chargeDelay) }
-            await refresh(\.charges) { try await Fetch.myCharges(as: $0) }
+            let result: Result<UserLookup, FetchFailure>
+            do {
+                result = .success(try await Fetch.userLookup(id, as: user))
+            } catch let failure as FetchFailure {
+                result = .failure(failure)
+            } catch {
+                result = .failure(FetchFailure(headline: "Lookup failed", detail: error.localizedDescription))
+            }
+            guard self.session == session, lookupID == id else { return }
+            lookup.isLoading = false
+            switch result {
+            case .success(let value):
+                lookup.value = value
+                lookup.updatedAt = .now
+                lookup.failure = nil
+            case .failure(let failure):
+                lookup.failure = failure
+            }
         }
     }
 
