@@ -5,6 +5,8 @@ import SwiftUI
 struct GPUWatchApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    @AppStorage("appearance") private var appearance = Appearance.system
+
     private var model: AppModel { appDelegate.model }
 
     var body: some Scene {
@@ -21,6 +23,9 @@ struct GPUWatchApp: App {
             CommandGroup(after: .toolbar) {
                 Button("Refresh") { model.refreshCurrentPage() }
                     .keyboardShortcut("r")
+                Picker("Appearance", selection: $appearance) {
+                    ForEach(Appearance.allCases) { Text($0.title).tag($0) }
+                }
                 Divider()
             }
         }

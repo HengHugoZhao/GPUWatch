@@ -5,6 +5,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(AppModel.self) private var model
     @AppStorage("isPinnedOnTop") private var isPinned = false
+    @AppStorage("appearance") private var appearance = Appearance.system
 
     var body: some View {
         Group {
@@ -16,12 +17,18 @@ struct ContentView: View {
         }
         .tint(Theme.accent)
         .background(WindowLevel(isOnTop: isPinned))
+        .onChange(of: appearance, initial: true) { _, chosen in
+            NSApp.appearance = chosen.nsAppearance
+        }
     }
 
     private var pages: some View {
         NavigationSplitView {
             Sidebar()
                 .toolbar {
+                    ToolbarItem {
+                        AppearanceMenu(appearance: $appearance)
+                    }
                     ToolbarItem {
                         Button {
                             isPinned.toggle()
@@ -67,6 +74,57 @@ struct ContentView: View {
                 HPCPage(snapshot: snapshot)
             }
         }
+    }
+}
+
+/// Light, dark, or whatever the Mac is set to. Applied to the whole app rather than as a SwiftUI
+/// colour scheme, so the window's frame and the glass behind the page follow it too.
+enum Appearance: String, CaseIterable, Identifiable {
+    case system, light, dark
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .system: return "Match System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .system: return "circle.lefthalf.filled"
+        case .light: return "sun.max"
+        case .dark: return "moon"
+        }
+    }
+
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        }
+    }
+}
+
+private struct AppearanceMenu: View {
+    @Binding var appearance: Appearance
+
+    var body: some View {
+        Menu {
+            Picker("Appearance", selection: $appearance) {
+                ForEach(Appearance.allCases) { option in
+                    Label(option.title, systemImage: option.symbol).tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Label("Appearance", systemImage: appearance.symbol)
+        }
+        .menuIndicator(.hidden)
+        .help("Appearance: \(appearance.title)")
     }
 }
 

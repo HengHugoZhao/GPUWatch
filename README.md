@@ -18,7 +18,7 @@ It reads over SSH, signed in as you, and never changes anything on either machin
 - **Lab members.** Everyone on the lab's account, busiest first, with the GPUs, CPUs and memory their running jobs hold. Open a member to see their jobs.
 - **CPU memory and storage** for each machine, including your scratch space and the lab's shared storage.
 
-The sidebar keeps both machines in view whichever page is open. The pin at the top left keeps the window above other apps. The app refreshes on its own, every 30 seconds for ZheServer and every 60 for UVA HPC, and stops asking the cluster while the window is hidden.
+The sidebar keeps both machines in view whichever page is open. The pin at the top left keeps the window above other apps, and the button beside it, also under **View › Appearance**, switches between light, dark and matching the system. The app refreshes on its own, every 30 seconds for ZheServer and every 60 for UVA HPC, and stops asking the cluster while the window is hidden.
 
 ![The ZheServer page: your jobs, GPU hours, and each GPU with who is using it](docs/zheserver.png)
 
