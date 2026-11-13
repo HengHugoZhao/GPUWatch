@@ -90,7 +90,7 @@ public struct ServerGPU: Identifiable, Sendable {
     public let uuid: String
     public let memoryUsedMiB: Int
     public let memoryTotalMiB: Int
-    public let utilizationPercent: Int?
+    public internal(set) var utilizationPercent: Int?
     public let temperatureC: Int?
     public let powerDrawW: Double?
     public let powerLimitW: Double?
@@ -134,7 +134,7 @@ public struct SystemMemory: Sendable, Equatable {
 public struct ServerSnapshot: Sendable {
     public let me: String
     public let hostname: String
-    public let gpus: [ServerGPU]
+    public internal(set) var gpus: [ServerGPU]
     /// Nil if the server didn't report it; that shouldn't cost the GPU view.
     public let memory: SystemMemory?
     public let cpuCount: Int?
@@ -194,6 +194,18 @@ public struct ServerSnapshot: Sendable {
     }
 
     /// How busy the CPUs are: load over cores, capped at 1 since a queue past every core is still "all busy".
+    /// The same snapshot with each GPU's utilization replaced by a newer reading where there is one.
+    public func withUtilization(_ reading: [Int: Int]) -> ServerSnapshot {
+        guard !reading.isEmpty else { return self }
+        var copy = self
+        copy.gpus = gpus.map { gpu in
+            var gpu = gpu
+            if let busy = reading[gpu.index] { gpu.utilizationPercent = busy }
+            return gpu
+        }
+        return copy
+    }
+
     public var cpuBusyFraction: Double? {
         guard let loadAverage, let cpuCount, cpuCount > 0 else { return nil }
         return min(loadAverage / Double(cpuCount), 1)
@@ -227,6 +239,19 @@ public struct ServerSnapshot: Sendable {
 // MARK: - Parsing
 
 extension ServerSnapshot {
+    /// Each GPU's utilization averaged over `nvidia-smi dmon`'s samples: rows of a GPU index then
+    /// its `sm` percentage, under `#` headers. Nothing when dmon failed, so the single reading stands.
+    static func parseUtilization(_ section: RemoteOutput.Section?) -> [Int: Int] {
+        guard let section, section.exitCode == 0 else { return [:] }
+        var samples: [Int: [Int]] = [:]
+        for line in section.lines where !line.hasPrefix("#") {
+            let fields = line.split(whereSeparator: \.isWhitespace)
+            guard fields.count >= 2, let index = Int(fields[0]), let busy = Int(fields[1]) else { continue }
+            samples[index, default: []].append(busy)
+        }
+        return samples.mapValues { Int((Double($0.reduce(0, +)) / Double($0.count)).rounded()) }
+    }
+
     public static func parse(_ text: String) throws -> ServerSnapshot {
         let output = RemoteOutput(text)
         guard output.isComplete else {
@@ -258,6 +283,7 @@ extension ServerSnapshot {
             ))
         }
 
+        let averagedUtilization = parseUtilization(output.sections["UTIL"])
         let gpus: [ServerGPU] = gpuSection.lines.compactMap { line in
             let fields = csvFields(line, maxFields: 9)
             guard fields.count == 9, let index = Int(fields[0]),
@@ -268,7 +294,7 @@ extension ServerSnapshot {
                 uuid: fields[2],
                 memoryUsedMiB: used,
                 memoryTotalMiB: total,
-                utilizationPercent: Int(fields[5]),
+                utilizationPercent: averagedUtilization[index] ?? Int(fields[5]),
                 temperatureC: Int(fields[6]),
                 powerDrawW: Double(fields[7]),
                 powerLimitW: Double(fields[8]),
@@ -318,5 +344,34 @@ extension ServerSnapshot {
             workDirs[pid] = String(fields[1])
         }
         return workDirs
+    }
+}
+
+/// Reads a running `nvidia-smi dmon -s u` line by line. It prints one row per GPU each second,
+/// and a reading is complete once every GPU has reported, or when the next second's rows begin.
+public struct UtilizationStream: Sendable {
+    private let gpuCount: Int?
+    private var pending: [Int: Int] = [:]
+
+    public init(gpuCount: Int?) {
+        self.gpuCount = gpuCount
+    }
+
+    /// A whole second's reading, GPU index to percent busy, when this line completes one.
+    public mutating func feed(_ line: String) -> [Int: Int]? {
+        guard !line.hasPrefix("#") else { return nil }
+        let fields = line.split(whereSeparator: \.isWhitespace)
+        guard fields.count >= 2, let index = Int(fields[0]), let busy = Int(fields[1]) else { return nil }
+        var finished: [Int: Int]?
+        if pending[index] != nil {
+            finished = pending
+            pending = [:]
+        }
+        pending[index] = busy
+        if let gpuCount, pending.count >= gpuCount {
+            finished = pending
+            pending = [:]
+        }
+        return finished
     }
 }

@@ -25,13 +25,16 @@ struct HistoryTab {
 struct HistoryPanel: View {
     let title: String
     let note: String?
+    /// A longer note, under the chart rather than beside the title.
+    var footnote: String? = nil
     let tabs: [HistoryTab]
     /// Remembered per panel, so the chart opens on the period last looked at.
     @AppStorage private var selected: Int
 
-    init(title: String, note: String?, storageKey: String, tabs: [HistoryTab]) {
+    init(title: String, note: String?, footnote: String? = nil, storageKey: String, tabs: [HistoryTab]) {
         self.title = title
         self.note = note
+        self.footnote = footnote
         self.tabs = tabs
         _selected = AppStorage(wrappedValue: 0, storageKey)
     }
@@ -61,8 +64,15 @@ struct HistoryPanel: View {
                     SlotChart(columns: tabs[index].columns, current: tabs[index].current)
                         .padding(.horizontal, 14)
                         .padding(.top, 10)
-                        .padding(.bottom, 8)
+                        .padding(.bottom, footnote == nil ? 8 : 4)
                         .id(index)
+                }
+                if let footnote {
+                    Text(footnote)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 10)
                 }
             }
         }

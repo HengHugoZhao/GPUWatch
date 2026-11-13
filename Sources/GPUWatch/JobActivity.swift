@@ -105,7 +105,8 @@ struct GPUHoursPanel: View {
         let totals = usage.runningTotal(through: today, minimumMonths: Self.monthsShown)
         HistoryPanel(
             title: "My GPU hours",
-            note: note,
+            note: nil,
+            footnote: note,
             storageKey: "gpuHoursHistoryTab",
             tabs: [
                 HistoryTab(caption: "This week", number: Format.hours(weeks.last?.hours ?? 0), unit: "GPU hours",

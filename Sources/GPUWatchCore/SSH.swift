@@ -85,6 +85,100 @@ public enum SSH {
         }
     }
 
+    /// Runs a command that keeps printing, and hands over its output a line at a time until it
+    /// ends or the stream is dropped, which stops it. It joins the shared connection when one is
+    /// open but never becomes its master: a master would hold the pipe open after this ends.
+    public static func lines(on machine: Machine, as user: String, command: String) -> AsyncThrowingStream<String, Error> {
+        let host = machine.name
+        if let fixtures = ProcessInfo.processInfo.environment["GPUWATCH_FIXTURES"] {
+            return fixtureLines(directory: fixtures, host: host)
+        }
+        return AsyncThrowingStream { continuation in
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = ["-o", "ControlMaster=no"] + options + connectionArguments(machine: machine, user: user) + [command]
+            process.standardInput = FileHandle.nullDevice
+            let out = Pipe()
+            let err = Pipe()
+            process.standardOutput = out
+            process.standardError = err
+
+            let buffer = LineBuffer()
+            out.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                guard !data.isEmpty else {
+                    handle.readabilityHandler = nil
+                    return
+                }
+                for line in buffer.append(data) { continuation.yield(line) }
+            }
+            process.terminationHandler = { finished in
+                out.fileHandleForReading.readabilityHandler = nil
+                let stderr = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if finished.terminationReason == .exit && finished.terminationStatus != 0 {
+                    continuation.finish(throwing: describe(host: host, user: user, stderr: stderr))
+                } else {
+                    continuation.finish()
+                }
+            }
+            continuation.onTermination = { _ in
+                if process.isRunning { process.terminate() }
+            }
+            do {
+                try FileManager.default.createDirectory(
+                    at: controlDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
+                )
+                try process.run()
+            } catch {
+                continuation.finish(throwing: FetchFailure(headline: "Couldn't run ssh", detail: error.localizedDescription))
+            }
+        }
+    }
+
+    /// Splits bytes as they arrive into whole lines, keeping a partial last line for next time.
+    private final class LineBuffer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+
+        func append(_ chunk: Data) -> [String] {
+            lock.withLock {
+                data.append(chunk)
+                var lines: [String] = []
+                while let newline = data.firstIndex(of: UInt8(ascii: "\n")) {
+                    lines.append(String(decoding: data[data.startIndex..<newline], as: UTF8.self))
+                    data.removeSubrange(data.startIndex...newline)
+                }
+                return lines
+            }
+        }
+    }
+
+    /// The fixture's `@@UTIL` rows, replayed once a second with some wobble so the demo moves.
+    private static func fixtureLines(directory: String, host: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                guard let text = try? readFixture(directory: directory, host: host) else {
+                    continuation.finish()
+                    return
+                }
+                let rows = RemoteOutput(text).sections["UTIL"]?.lines.filter { !$0.hasPrefix("#") } ?? []
+                var generator = SystemRandomNumberGenerator()
+                while !Task.isCancelled, !rows.isEmpty {
+                    for row in rows {
+                        let fields = row.split(whereSeparator: \.isWhitespace)
+                        guard fields.count >= 2, let index = Int(fields[0]), let busy = Int(fields[1]) else { continue }
+                        let wobble = busy == 0 ? 0 : Int.random(in: -12...8, using: &generator)
+                        continuation.yield("\(index) \(min(max(busy + wobble, 1), 100))")
+                    }
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     /// Closes the shared connection, e.g. after waking from sleep when it is certainly dead.
     public static func dropConnection(on machine: Machine, as user: String) async {
         guard ProcessInfo.processInfo.environment["GPUWATCH_FIXTURES"] == nil else { return }

@@ -109,6 +109,8 @@ struct Meter: View {
             }
         }
         .frame(height: height)
+        // Glides between readings, which arrive every second while utilization streams.
+        .animation(.easeOut(duration: 0.5), value: fraction)
         .accessibilityValue("\(Int((min(max(fraction, 0), 1)) * 100)) percent")
     }
 }
@@ -130,6 +132,7 @@ struct Ring: View {
             }
         }
         .padding(lineWidth / 2)
+        .animation(.easeOut(duration: 0.5), value: fraction)
         .accessibilityValue(fraction.map { "\(Int(min(max($0, 0), 1) * 100)) percent" } ?? "No reading")
     }
 }

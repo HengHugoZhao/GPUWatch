@@ -82,7 +82,7 @@ The machines, the Slurm account (`takolab`) and the storage paths are set in `So
 
 Press ⌘1 or ⌘2 to switch between the machines, and ⌘R to refresh. The pin stays on when you reopen the app.
 
-**ZheServer** runs `nvidia-smi`, `ps`, `nproc` and `df`, and refreshes every 30 seconds. It lists your jobs, the GPUs with CPU memory beside the headline, and storage.
+**ZheServer** runs `nvidia-smi`, `ps`, `nproc` and `df`, and refreshes every 30 seconds. It lists your jobs, the GPUs with CPU memory beside the headline, and storage. While the page is open, GPU utilization is live: one `nvidia-smi dmon` runs over the shared SSH connection and updates the rings and bars every second, and it stops when the window is hidden or you switch pages.
 
 ZheServer has no scheduler, so a job here is worked out from processes: GPU processes with the same parent and the same command line count as one job. Only work using a GPU appears, so a CPU-only process isn't listed.
 
@@ -151,6 +151,7 @@ Polling of UVA HPC stops while the window is completely hidden and catches up wh
 scripts/build_app.sh                    # builds .build/GPU Watch.app without installing it
 swift run GPUWatchChecks                # parser and classification checks
 swift run GPUWatchChecks --live mst3k   # fetches both machines as that ID and prints what the app would show
+swift run GPUWatchChecks --stream mst3k # prints five seconds of ZheServer's live GPU utilization
 ```
 
 To try the interface with the demo data in `Fixtures`, including jobs the clusters aren't showing right now, signed in as an example ID and without touching your real GPU-hours file:

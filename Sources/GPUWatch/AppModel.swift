@@ -47,7 +47,9 @@ final class AppModel {
 
     /// Who the app signs in as on both machines. Nil shows the sign-in page.
     private(set) var user: String?
-    var page: Page = .server
+    var page: Page = .server {
+        didSet { updateLiveUtilization() }
+    }
     private(set) var server = Feed<ServerSnapshot>()
     private(set) var hpc = Feed<HPCSnapshot>()
     private(set) var jobHistory = Feed<JobHistory>()
@@ -57,6 +59,8 @@ final class AppModel {
     private(set) var lookup = Feed<UserLookup>()
     private(set) var labMembers = Feed<LabMembers>()
     private(set) var serverUsage = ServerUsageLedger()
+    /// ZheServer's GPU utilization from the last second, GPU index to percent, while it streams.
+    private(set) var liveUtilization: [Int: Int] = [:]
 
     // Which rows are open. Kept here so they survive refreshes and switching pages.
     var expandedJobs: Set<String> = []
@@ -70,6 +74,7 @@ final class AppModel {
     /// Bumped at each sign-in and sign-out, so a fetch still running for the last user is dropped.
     private var session = 0
     @ObservationIgnored private var pollers: [Task<Void, Never>] = []
+    @ObservationIgnored private var utilizationStream: Task<Void, Never>?
     @ObservationIgnored private var observers: [(NotificationCenter, NSObjectProtocol)] = []
 
     private static let savedUserKey = "signedInUser"
@@ -119,6 +124,7 @@ final class AppModel {
         pollers = []
         session += 1
         user = nil
+        updateLiveUtilization()
         UserDefaults.standard.removeObject(forKey: Self.savedUserKey)
         page = .server
         server = Feed()
@@ -194,6 +200,7 @@ final class AppModel {
         await refresh(\.server) { try await Fetch.server(as: $0) }
         // Only a fresh reading: a failed refresh leaves the old one, whose ages are out of date.
         guard server.updatedAt != previousUpdate, let snapshot = server.value else { return }
+        updateLiveUtilization()
         let before = serverUsage
         serverUsage.observe(snapshot)
         if serverUsage != before { saveServerUsage() }
@@ -313,7 +320,48 @@ final class AppModel {
         }
     }
 
+    // MARK: - Live utilization
+
+    /// The page's snapshot, with the streamed utilization where it has one.
+    var serverWithLiveUtilization: ServerSnapshot? {
+        server.value?.withUtilization(liveUtilization)
+    }
+
+    var isUtilizationLive: Bool { !liveUtilization.isEmpty }
+
+    /// Streams only while someone can watch it: signed in, on the ZheServer page, window visible,
+    /// and after the first snapshot, which says how many GPUs a reading has.
+    private func updateLiveUtilization() {
+        let wanted = user != nil && page == .server && server.value != nil && isWindowVisible
+        if wanted, utilizationStream == nil, let user {
+            utilizationStream = Task { await streamUtilization(as: user) }
+        } else if !wanted, let stream = utilizationStream {
+            stream.cancel()
+            utilizationStream = nil
+            liveUtilization = [:]
+        }
+    }
+
+    /// Restarts after a dropped connection, after a pause so an unreachable server isn't hammered.
+    private func streamUtilization(as user: String) async {
+        let session = self.session
+        while !Task.isCancelled, self.session == session {
+            var reader = UtilizationStream(gpuCount: server.value?.gpus.count)
+            do {
+                for try await line in SSH.lines(on: RemoteScripts.serverMachine, as: user, command: RemoteScripts.liveUtilization) {
+                    guard self.session == session else { break }
+                    if let reading = reader.feed(line) { liveUtilization = reading }
+                }
+            } catch {}
+            guard !Task.isCancelled, self.session == session else { return }
+            // Ended without being stopped: the snapshot's own reading is better than a frozen one.
+            liveUtilization = [:]
+            try? await Task.sleep(for: .seconds(15))
+        }
+    }
+
     // MARK: - Visibility and sleep
+
 
     /// The cluster isn't polled while the window is hidden, so a forgotten app doesn't keep
     /// querying a shared login node. ZheServer only slows down, to keep its GPU hours going.
@@ -326,7 +374,10 @@ final class AppModel {
         let occlusion = center.addObserver(
             forName: NSApplication.didChangeOcclusionStateNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.refreshIfStale() }
+            Task { @MainActor in
+                self?.refreshIfStale()
+                self?.updateLiveUtilization()
+            }
         }
         observers.append((center, occlusion))
 

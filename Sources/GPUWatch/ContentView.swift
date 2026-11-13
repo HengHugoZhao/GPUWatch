@@ -67,7 +67,7 @@ struct ContentView: View {
         switch model.page {
         case .server:
             FeedPage(feed: model.server, host: RemoteScripts.serverHost, retry: model.refreshCurrentPage) { snapshot in
-                ServerPage(snapshot: snapshot)
+                ServerPage(snapshot: model.serverWithLiveUtilization ?? snapshot)
             }
         case .hpc:
             FeedPage(feed: model.hpc, host: RemoteScripts.hpcHost, retry: model.refreshCurrentPage) { snapshot in

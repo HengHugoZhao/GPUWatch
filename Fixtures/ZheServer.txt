@@ -12,6 +12,34 @@ regieleki01
 6, NVIDIA RTX PRO 6000 Blackwell Server Edition, GPU-a6, 12000, 97887, 0, 33, [N/A], [N/A]
 7, NVIDIA RTX PRO 6000 Blackwell Server Edition, GPU-a7, 80000, 97887, 87, 58, 300.10, 600.00
 @@RC 0
+@@UTIL
+# gpu     sm    mem    enc    dec    jpg    ofa 
+# Idx      %      %      %      %      %      % 
+    0    100     95      0      0      0      0 
+    1     96     90      0      0      0      0 
+    2     30     12      0      0      0      0 
+    3    100     60      0      0      0      0 
+    4      0      0      0      0      0      0 
+    5      0      0      0      0      0      0 
+    6      0      0      0      0      0      0 
+    7     90     40      0      0      0      0 
+    0    100     95      0      0      0      0 
+    1     96     90      0      0      0      0 
+    2      0      0      0      0      0      0 
+    3    100     60      0      0      0      0 
+    4      0      0      0      0      0      0 
+    5      0      0      0      0      0      0 
+    6      0      0      0      0      0      0 
+    7     84     40      0      0      0      0 
+    0    100     95      0      0      0      0 
+    1     96     90      0      0      0      0 
+    2     12      5      0      0      0      0 
+    3    100     60      0      0      0      0 
+    4      0      0      0      0      0      0 
+    5      0      0      0      0      0      0 
+    6      0      0      0      0      0      0 
+    7     87     40      0      0      0      0 
+@@RC 0
 @@APPS
 GPU-a0, 1413993, 95700, /u/colleague/.conda/envs/ctrlg/bin/python3.12
 GPU-a1, 1413994, 93054, /u/colleague/.conda/envs/ctrlg/bin/python3.12

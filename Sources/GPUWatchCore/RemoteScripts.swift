@@ -51,6 +51,14 @@ public enum RemoteScripts {
     /// `sstat` is the one command here that reaches compute nodes, so running jobs are capped.
     static let liveJobLimit = 50
 
+    /// Utilization samples, a second apart, averaged per GPU: one `nvidia-smi` reading covers a
+    /// fraction of a second, so a bursty job like a model server can read 0% or 100% by chance.
+    /// The first comes at once, so 3 samples span about 2 seconds.
+    public static let utilizationSamples = 3
+    /// Runs while the window shows ZheServer: one row per GPU each second. The cap is a backstop
+    /// for a client that vanished without closing the connection; the app starts a new one after.
+    public static let liveUtilization = "exec timeout -k 5 3600 nvidia-smi dmon -s u -d 1"
+
     /// `df` gets a timeout because /p/simple is NFS: if its server stalls, that shouldn't cost
     /// the GPU view. `-k` because a hard mount ignores the polite signal while it's hung.
     public static let server = """
@@ -58,6 +66,9 @@ public enum RemoteScripts {
     echo '@@HOST'; hostname
     echo '@@GPUS'
     nvidia-smi --query-gpu=index,name,uuid,memory.used,memory.total,utilization.gpu,temperature.gpu,power.draw,power.limit --format=csv,noheader,nounits 2>&1
+    echo "@@RC $?"
+    echo '@@UTIL'
+    timeout -k 2 \(utilizationSamples + 5) nvidia-smi dmon -s u -c \(utilizationSamples) 2>&1
     echo "@@RC $?"
     echo '@@APPS'
     nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory,process_name --format=csv,noheader,nounits 2>/dev/null

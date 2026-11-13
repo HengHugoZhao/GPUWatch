@@ -28,9 +28,6 @@ struct ServerPage: View {
                         GPUCard(gpu: gpu, me: snapshot.me)
                     }
                 }
-                Text(footnote)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             StorageSection(
                 storage: snapshot.storage.map { [$0] } ?? [],
@@ -39,17 +36,18 @@ struct ServerPage: View {
             )
         }
     }
-
-    private var footnote: String {
-        let percent = Int(GPUAvailability.partlyFreeThreshold * 100)
-        return "Free: nothing running. Partly free: something is running, but at least \(percent)% of its memory is unused. "
-            + "Full: under \(percent)% of its memory is unused. Refreshes every 30 seconds."
-    }
 }
 
 /// The whole machine in five numbers: what's free, how hard the GPUs and CPUs work, and memory on each.
 private struct ServerStats: View {
+    @Environment(AppModel.self) private var model
     let snapshot: ServerSnapshot
+
+    private var availabilityHelp: String {
+        let percent = Int(GPUAvailability.partlyFreeThreshold * 100)
+        return "Free: nothing running. Partly free: something is running, but at least \(percent)% of its memory is unused. "
+            + "Full: under \(percent)% of its memory is unused. Refreshes every 30 seconds."
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -68,10 +66,11 @@ private struct ServerStats: View {
                     }
                 }
             }
+            .help(availabilityHelp)
             StatTile(
                 title: "GPU utilization",
                 value: snapshot.meanGPUUtilization.map(wholePercent) ?? "–",
-                caption: "Average across the GPUs"
+                caption: model.isUtilizationLive ? "All GPUs, live" : "All GPUs, last 2 seconds"
             ) {
                 Meter(fraction: snapshot.meanGPUUtilization ?? 0)
             }
@@ -243,7 +242,7 @@ private struct ServerJobUsage: View {
             label: "GPU",
             value: "\(Int((mean * 100).rounded()))%",
             fraction: mean,
-            explanation: "How busy the job's GPUs are right now, averaged over them. Anyone else on the same GPUs counts too."
+            explanation: "How busy the job's GPUs are, averaged across them: live, updated every second, while this page is open. Anyone else on the same GPUs counts too."
         )
     }
 
@@ -322,7 +321,7 @@ private struct GPUCard: View {
                     }
                 }
                 .frame(width: Self.ringSize, height: Self.ringSize)
-                .help("Utilization: how much of the last sample the GPU spent running work.")
+                .help("Utilization: how much of the last second the GPU spent running work. Live, updated every second while this page is open; otherwise averaged over 2 seconds at each refresh.")
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Memory")
                         .eyebrow()

@@ -79,6 +79,23 @@ func checkServerJobs() throws {
     check(fixtureJobs[0].shortCommand == "python3.12 eval.py", "job name")
 
     let serverSnapshot = try ServerSnapshot.parse(fixture("ZheServer"))
+    check(serverSnapshot.gpus.map(\.utilizationPercent) == [100, 96, 14, 100, 0, 0, 0, 87], "utilization averaged over dmon's samples: \(serverSnapshot.gpus.map(\.utilizationPercent))")
+    let utilRows = "# gpu sm\n# Idx %\n    0     90\n    1      0\n    0      0\n    1      0\n    0     30\n    1     10\n"
+    check(ServerSnapshot.parseUtilization(RemoteOutput("@@UTIL\n\(utilRows)@@RC 0\n@@END\n").sections["UTIL"]) == [0: 40, 1: 3], "a burst and an idle gap average out")
+    check(ServerSnapshot.parseUtilization(RemoteOutput("@@UTIL\nFailed to initialize NVML\n@@RC 9\n@@END\n").sections["UTIL"]).isEmpty, "a failed dmon leaves the single reading")
+    check(RemoteScripts.server.contains("nvidia-smi dmon -s u -c 3"), "three samples a second apart")
+
+    // Streaming: a reading is done when every GPU has reported, or, without a count, when rows wrap.
+    var counted = UtilizationStream(gpuCount: 2)
+    let countedReadings = ["# gpu sm mem", "# Idx %  %", "    0     55      3", "    1      7      0", "    0     60      3"].compactMap { counted.feed($0) }
+    check(countedReadings == [[0: 55, 1: 7]], "a second is complete once both GPUs report: \(countedReadings)")
+    var uncounted = UtilizationStream(gpuCount: nil)
+    let wrapped = ["0 10", "1 20", "0 30", "garbage", "1 -", "0 40"].compactMap { uncounted.feed($0) }
+    check(wrapped == [[0: 10, 1: 20], [0: 30]], "without a count, a repeated index starts the next second: \(wrapped)")
+    let live = serverSnapshot.withUtilization([7: 3])
+    check(live.gpus.map(\.utilizationPercent) == [100, 96, 14, 100, 0, 0, 0, 3], "a live reading replaces only the GPUs it covers")
+    check(serverSnapshot.withUtilization([:]).gpus.map(\.utilizationPercent) == serverSnapshot.gpus.map(\.utilizationPercent), "no reading leaves the snapshot alone")
+    check(RemoteScripts.liveUtilization.contains("nvidia-smi dmon -s u -d 1") && RemoteScripts.liveUtilization.contains("timeout"), "live stream is capped")
     check(serverSnapshot.cpuCount == 256, "core count")
     check(serverSnapshot.loadAverage == 96.42, "load average")
     check(abs((serverSnapshot.cpuBusyFraction ?? 0) - 96.42 / 256) < 1e-9, "CPU busy fraction")
@@ -613,6 +630,7 @@ func live(as user: String) async {
         let server = try await Fetch.server(as: user)
         print("ZheServer (\(server.hostname), as \(server.me)) in \(String(format: "%.1f", Date().timeIntervalSince(start)))s")
         print("  free \(server.count(.free)), partly \(server.count(.partlyFree)), full \(server.count(.full)) of \(server.gpus.count)")
+        print("  utilization over 2 s: \(server.gpus.map { "\($0.index):\($0.utilizationPercent.map(String.init) ?? "?")%" }.joined(separator: " ")), load \(server.loadAverage.map { String($0) } ?? "?") on \(server.cpuCount ?? 0) cores")
         if let memory = server.memory {
             print("  CPU memory: \(Format.memory(mb: memory.usedMB)) / \(Format.memory(mb: memory.totalMB)) in use, \(Format.memory(mb: memory.availableMB)) available")
         }
@@ -689,6 +707,30 @@ func countParsed(path: String, parse: (String, DateFormatter) -> SlurmJob?) {
 }
 
 let arguments = CommandLine.arguments.dropFirst()
+/// Watches ZheServer's streamed utilization for a few seconds, as the app does while the page is open.
+if arguments.first == "--stream" {
+    guard let user = arguments.dropFirst().first.flatMap(ComputingID.normalized) else {
+        print("usage: GPUWatchChecks --stream <computing ID>")
+        exit(2)
+    }
+    let started = Date()
+    var reader = UtilizationStream(gpuCount: nil)
+    var readings = 0
+    do {
+        for try await line in SSH.lines(on: RemoteScripts.serverMachine, as: user, command: RemoteScripts.liveUtilization) {
+            guard let reading = reader.feed(line) else { continue }
+            readings += 1
+            let busy = reading.keys.sorted().map { "\($0):\(reading[$0]!)%" }.joined(separator: " ")
+            print(String(format: "%5.1fs  ", Date().timeIntervalSince(started)) + busy)
+            if readings == 5 { break }
+        }
+    } catch {
+        print("stream failed: \(error)")
+        exit(1)
+    }
+    exit(0)
+}
+
 if arguments.first == "--live" {
     guard let user = arguments.dropFirst().first.flatMap(ComputingID.normalized) else {
         print("usage: GPUWatchChecks --live <computing ID>")
